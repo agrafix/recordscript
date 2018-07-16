@@ -75,4 +75,9 @@ runUniquify expr =
           do vars <- mapM (mapMA uniquify) (l_args lambdaVal)
              bodyE <- runUniquify (l_body lambdaVal)
              pure $ Lambda vars bodyE
+      EFunApp f ->
+          fmap EFunApp $ flip mapMA f $ \funApp ->
+          do recv <- runUniquify (fa_receiver funApp)
+             args <- mapM runUniquify (fa_args funApp)
+             pure $ FunApp recv args
       _ -> error $ "runUniquify: Not implemented: " ++ show expr

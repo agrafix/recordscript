@@ -207,6 +207,7 @@ getExprType expr =
       EIf (Annotated x _) -> tp_type x
       ELet (Annotated x _) -> tp_type x
       ELambda (Annotated x _) -> tp_type x
+      EFunApp (Annotated x _) -> tp_type x
 
 getRecordType :: Record (Expr TypedPos) -> Record Type
 getRecordType (Record hm) =
@@ -269,6 +270,17 @@ inferLambda _ lambdaStmt =
        body <- inferExpr (l_body lambdaStmt)
        let lambdaType = TFun (map snd args) (getExprType body)
        pure (Lambda (map fst args) body, lambdaType)
+
+inferFunApp :: InferM m => Pos -> FunApp Pos -> m (FunApp TypedPos, Type)
+inferFunApp pos funApp =
+    do recvExpr <- inferExpr (fa_receiver funApp)
+       argExprs <- mapM inferExpr (fa_args funApp)
+       returnType <- TVar <$> freshTypeVar
+       let recvType = getExprType recvExpr
+           argTypes = map getExprType argExprs
+           actualType = TFun argTypes returnType
+       _ <- unifyTypes pos recvType actualType
+       pure (FunApp recvExpr argExprs, returnType)
 
 inferExpr :: InferM m => Expr Pos -> m (Expr TypedPos)
 inferExpr expr =

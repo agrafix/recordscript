@@ -50,6 +50,12 @@ data Lambda a
     , l_body :: Expr a
     } deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
+data FunApp a
+    = FunApp
+    { fa_receiver :: Expr a
+    , fa_args :: [Expr a]
+    } deriving (Eq, Ord, Show, Generic, Data, Typeable)
+
 data Expr a
     = ELit (A a Literal)
     | EVar (A a Var)
@@ -58,6 +64,6 @@ data Expr a
     | EIf (WithA a If)
     | ELet (WithA a Let)
     | ELambda (WithA a Lambda)
-    | EFunApp (A a Var) [WithA a Expr]
+    | EFunApp (WithA a FunApp)
     | ECase (WithA a Expr) [(WithA a Pattern, WithA a Expr)]
     deriving (Eq, Ord, Show, Generic, Data, Typeable)
