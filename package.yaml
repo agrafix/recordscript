@@ -29,6 +29,8 @@ dependencies:
   - mtl
   - transformers
   - syb >=0.4
+  - megaparsec
+  - scientific
 
 default-extensions:
   - ApplicativeDo

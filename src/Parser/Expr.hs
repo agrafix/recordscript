@@ -1,0 +1,79 @@
+module Parser.Expr where
+
+import Parser.Literal
+import Parser.Pattern
+import Parser.Shared
+import Types.Ast
+import Types.Common
+
+import Control.Applicative (empty)
+import Control.Monad (void)
+import Data.Void
+import Text.Megaparsec hiding (Pos)
+import Text.Megaparsec.Char
+import Text.Megaparsec.Expr
+import qualified Data.Scientific as Sci
+import qualified Text.Megaparsec.Char.Lexer as L
+
+list :: Parser [Expr Pos]
+list =
+    brackets $
+    flip sepBy (symbol ",") $
+    exprP
+
+ifP :: Parser (If Pos)
+ifP =
+    do ifHead <- branch "if"
+       moreBodies <- many (branch "else if")
+       elseBlock <-
+           do _ <- symbol "else"
+              braces exprP
+       pure $ If (ifHead : moreBodies) elseBlock
+    where
+      branch ty =
+          do _ <- symbol ty
+             condE <- parens exprP
+             bodyE <- braces exprP
+             pure (condE, bodyE)
+
+lambdaP :: Parser (Lambda Pos)
+lambdaP =
+    do args <-
+           parens $ flip sepBy (symbol ",") $ posAnnotated var
+       _ <- symbol "=>"
+       body <- braces exprP
+       pure $ Lambda args body
+
+funAppP :: Parser (FunApp Pos)
+funAppP =
+    do receiver <- varOnlyExpr <|> parens exprP
+       args <- parens $ flip sepBy (symbol ",") exprP
+       pure $ FunApp receiver args
+
+caseP :: Parser (Case Pos)
+caseP =
+    do _ <- symbol "case"
+       matchOn <- parens exprP
+       cases <-
+           braces $
+           flip sepBy (symbol ";") $
+           do pat <- patternP
+              _ <- symbol "->"
+              expr <- exprP
+              pure (pat, expr)
+       pure (Case matchOn cases)
+
+varOnlyExpr :: Parser (Expr Pos)
+varOnlyExpr = EVar <$> posAnnotated var
+
+exprP :: Parser (Expr Pos)
+exprP =
+    ELit <$> posAnnotated literal <|>
+    varOnlyExpr <|>
+    EList <$> posAnnotated list <|>
+    ERecord <$> posAnnotated (record exprP) <|>
+    EIf <$> posAnnotated ifP <|>
+    ELambda <$> posAnnotated lambdaP <|>
+    EFunApp <$> posAnnotated funAppP <|>
+    ECase <$> posAnnotated caseP
+    -- TODO: let is missing

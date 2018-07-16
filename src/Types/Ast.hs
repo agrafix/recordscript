@@ -6,10 +6,7 @@ import Types.Common
 
 import Data.Data
 import Data.Hashable
-import Data.Typeable
 import GHC.Generics
-import qualified Data.Generics as G
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
 newtype Var
@@ -17,7 +14,7 @@ newtype Var
     deriving (Eq, Ord, Show, Generic, Data, Typeable, Hashable)
 
 data Literal
-    = LInt Integer
+    = LInt Int
     | LFloat Double
     | LChar Char
     | LString T.Text
