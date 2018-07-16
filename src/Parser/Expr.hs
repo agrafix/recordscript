@@ -6,14 +6,7 @@ import Parser.Shared
 import Types.Ast
 import Types.Common
 
-import Control.Applicative (empty)
-import Control.Monad (void)
-import Data.Void
 import Text.Megaparsec hiding (Pos)
-import Text.Megaparsec.Char
-import Text.Megaparsec.Expr
-import qualified Data.Scientific as Sci
-import qualified Text.Megaparsec.Char.Lexer as L
 
 list :: Parser [Expr Pos]
 list =

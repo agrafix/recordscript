@@ -14,7 +14,8 @@ import qualified Text.Megaparsec.Char.Lexer as L
 
 type Parser = Parsec Void T.Text
 
-executeParser :: String -> Parser a -> T.Text -> Either (ParseError (Token T.Text) Void) a
+executeParser ::
+    String -> Parser a -> T.Text -> Either (ParseError (Token T.Text) Void) a
 executeParser fp p inp = runParser p fp inp
 
 lineComment :: Parser ()

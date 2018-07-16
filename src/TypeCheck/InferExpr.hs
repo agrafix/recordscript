@@ -367,7 +367,10 @@ inferExpr expr =
 
 -- Testing / Playground
 
+fakePos :: Pos
 fakePos = Pos "<fake>" Nothing Nothing
+
+fakeA :: x -> Annotated Pos x
 fakeA = Annotated fakePos
 
 example1 :: IO (Either Error (Expr TypedPos, InferState))
