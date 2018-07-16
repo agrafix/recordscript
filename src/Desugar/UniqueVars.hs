@@ -3,7 +3,6 @@ module Desugar.UniqueVars where
 
 import Types.Ast
 import Types.Common
-import Types.Types
 
 import Control.Monad
 import Control.Monad.State
@@ -41,6 +40,17 @@ uniquify q@(Var x) =
                     , us_replaceMap = HM.insert q v' (us_replaceMap s)
                     }
                 pure v'
+
+runUniquifyPat :: (Show a, UniqueM m) => Pattern a -> m (Pattern a)
+runUniquifyPat p =
+    case p of
+      PLit _ -> pure p
+      PAny _ -> pure p
+      PVar v -> PVar <$> mapMA uniquify v
+      PRecord r ->
+          fmap PRecord $ flip mapMA r $ \(Record hm) ->
+          fmap (Record . HM.fromList) $ forM (HM.toList hm) $ \(lbl, pat) ->
+          (,) <$> pure lbl <*> runUniquifyPat pat
 
 -- todo: can we do scope checking here too?
 runUniquify :: (Show a, UniqueM m) => Expr a -> m (Expr a)
@@ -80,4 +90,13 @@ runUniquify expr =
           do recv <- runUniquify (fa_receiver funApp)
              args <- mapM runUniquify (fa_args funApp)
              pure $ FunApp recv args
-      _ -> error $ "runUniquify: Not implemented: " ++ show expr
+      ECase c ->
+          fmap ECase $ flip mapMA c $ \caseExpr ->
+          do matchOn <- runUniquify (c_matchOn caseExpr)
+             cases <-
+                 forM (c_cases caseExpr) $ \(pat, patExpr) ->
+                 scoped $
+                 do pat' <- runUniquifyPat pat
+                    expr' <- runUniquify patExpr
+                    pure (pat', expr')
+             pure $ Case matchOn cases

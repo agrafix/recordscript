@@ -28,7 +28,7 @@ data Pattern a
    = PVar (A a Var)
    | PLit (A a Literal)
    | PRecord (A a (Record (Pattern a)))
-   | PAny
+   | PAny a
     deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
 data If a
@@ -56,6 +56,12 @@ data FunApp a
     , fa_args :: [Expr a]
     } deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
+data Case a
+    = Case
+    { c_matchOn :: Expr a
+    , c_cases :: [(Pattern a, Expr a)]
+    } deriving (Eq, Ord, Show, Generic, Data, Typeable)
+
 data Expr a
     = ELit (A a Literal)
     | EVar (A a Var)
@@ -65,5 +71,5 @@ data Expr a
     | ELet (WithA a Let)
     | ELambda (WithA a Lambda)
     | EFunApp (WithA a FunApp)
-    | ECase (WithA a Expr) [(WithA a Pattern, WithA a Expr)]
+    | ECase (WithA a Case)
     deriving (Eq, Ord, Show, Generic, Data, Typeable)

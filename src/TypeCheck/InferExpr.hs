@@ -11,8 +11,6 @@ import qualified Names.StdLib as N
 import Control.Monad.Except
 import Control.Monad.State
 import Data.Data
-import Data.Hashable
-import Data.Maybe
 import Data.Monoid
 import GHC.Generics
 import qualified Data.Foldable as F
@@ -51,10 +49,11 @@ data ErrorMessage
 
 type InferM m = (MonadError Error m, MonadState InferState m)
 
+runInferM :: StateT InferState (ExceptT Error m) a -> m (Either Error (a, InferState))
 runInferM go =
-    runExceptT $ runStateT go init
+    runExceptT $ runStateT go initSt
     where
-      init =
+      initSt =
           InferState
           { is_context = initContext
           , is_varSupply = 0
@@ -112,7 +111,7 @@ putVarType pos var ty =
             s
             { is_context =
                 (is_context s)
-                { ctx_varTypes = HM.insert var ty (ctx_varTypes $ is_context s)
+                { ctx_varTypes = HM.insert var finalTy (ctx_varTypes $ is_context s)
                 }
             }
 
@@ -176,9 +175,9 @@ unifyTypes pos t1 t2 =
           else throwTypeError
       (TRec r1, TRec r2) -> TRec <$> unifyRecord pos r1 r2
       (TApp a1 a2, TApp b1 b2) ->
-          if a1 == b1 && a2 == b2
-          then pure t1
-          else throwTypeError
+          do lhs <- unifyTypes pos a1 b1
+             rhs <- unifyTypes pos a2 b2
+             pure (TApp lhs rhs)
       (TVar x, t) -> assignTVar pos x t
       (t, TVar x) -> assignTVar pos x t
       _ -> throwTypeError
@@ -208,6 +207,7 @@ getExprType expr =
       ELet (Annotated x _) -> tp_type x
       ELambda (Annotated x _) -> tp_type x
       EFunApp (Annotated x _) -> tp_type x
+      ECase (Annotated x _) -> tp_type x
 
 getRecordType :: Record (Expr TypedPos) -> Record Type
 getRecordType (Record hm) =
@@ -282,6 +282,56 @@ inferFunApp pos funApp =
        _ <- unifyTypes pos recvType actualType
        pure (FunApp recvExpr argExprs, returnType)
 
+inferRecordPat :: InferM m => Record (Pattern Pos) -> m (Record (Pattern TypedPos))
+inferRecordPat (Record hm) =
+    fmap (Record . HM.fromList) $
+    forM (HM.toList hm) $ \(label, val) ->
+    do (typed, _) <- inferPattern val
+       pure (label, typed)
+
+getPatternType :: Pattern TypedPos -> Type
+getPatternType pat =
+    case pat of
+      PVar (Annotated ann _) -> tp_type ann
+      PLit (Annotated ann _) -> tp_type ann
+      PRecord (Annotated ann _) -> tp_type ann
+      PAny ann -> tp_type ann
+
+getRecordPatternType :: Record (Pattern TypedPos) -> RecordType
+getRecordPatternType (Record hm) =
+    ROpen $ Record $ HM.map getPatternType hm
+
+inferPattern :: InferM m => Pattern Pos -> m (Pattern TypedPos, Type)
+inferPattern patternVal =
+    case patternVal of
+      PAny p ->
+          do expectedType <- TVar <$> freshTypeVar
+             pure (PAny (TypedPos p expectedType), expectedType)
+      PVar (Annotated p var) ->
+          do varType <- getVarType p var
+             pure (PVar (Annotated (TypedPos p varType) var), varType)
+      PLit (Annotated p lit) ->
+          do let litType = inferLiteral lit
+             pure (PLit (Annotated (TypedPos p litType) lit), litType)
+      PRecord (Annotated p recPat) ->
+          do recPatTyped <- inferRecordPat recPat
+             let recType = TRec $ getRecordPatternType recPatTyped
+             pure (PRecord (Annotated (TypedPos p recType) recPatTyped), recType)
+
+inferCase :: InferM m => Pos -> Case Pos -> m (Case TypedPos, Type)
+inferCase pos caseStmt =
+    do matchOn <- inferExpr (c_matchOn caseStmt)
+       returnType <- TVar <$> freshTypeVar
+       patternMatches <-
+           forM (c_cases caseStmt) $ \(pat, expr) ->
+           do (patInf, patTy) <- inferPattern pat
+              _ <- unifyTypes pos (getExprType matchOn) patTy
+              exprInf <- inferExpr expr
+              let exprTy = getExprType exprInf
+              _ <- unifyTypes pos returnType exprTy
+              pure (patInf, exprInf)
+       pure (Case matchOn patternMatches, returnType)
+
 inferExpr :: InferM m => Expr Pos -> m (Expr TypedPos)
 inferExpr expr =
     case expr of
@@ -308,6 +358,12 @@ inferExpr expr =
       ELambda (Annotated p lambdaStmt) ->
           do (lambdaTyped, lambdaType) <- inferLambda p lambdaStmt
              pure $ ELambda (Annotated (TypedPos p lambdaType) lambdaTyped)
+      EFunApp (Annotated p funApp) ->
+          do (funAppTyped, funAppType) <- inferFunApp p funApp
+             pure $ EFunApp (Annotated (TypedPos p funAppType) funAppTyped)
+      ECase (Annotated p caseStmt) ->
+          do (caseTyped, caseType) <- inferCase p caseStmt
+             pure $ ECase (Annotated (TypedPos p caseType) caseTyped)
 
 -- Testing / Playground
 
