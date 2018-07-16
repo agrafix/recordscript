@@ -50,7 +50,7 @@ caseP =
        cases <-
            braces $
            flip sepBy (symbol ";") $
-           do pat <- patternP
+           do pat <- lexeme patternP
               _ <- symbol "->"
               expr <- exprP
               pure (pat, expr)
@@ -61,12 +61,12 @@ varOnlyExpr = EVar <$> posAnnotated var
 
 exprP :: Parser (Expr Pos)
 exprP =
+    ECase <$> posAnnotated caseP <|>
+    EIf <$> posAnnotated ifP <|>
     ELit <$> posAnnotated literal <|>
     varOnlyExpr <|>
     EList <$> posAnnotated list <|>
     ERecord <$> posAnnotated (record exprP) <|>
-    EIf <$> posAnnotated ifP <|>
     ELambda <$> posAnnotated lambdaP <|>
-    EFunApp <$> posAnnotated funAppP <|>
-    ECase <$> posAnnotated caseP
+    EFunApp <$> posAnnotated funAppP
     -- TODO: let is missing

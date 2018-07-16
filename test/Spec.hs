@@ -4,6 +4,7 @@ import Data.List (find)
 import System.Directory
 import System.FilePath
 import Test.Hspec
+import Text.Megaparsec (eof)
 import Text.Megaparsec.Error
 import qualified Data.Text.IO as T
 
@@ -29,7 +30,7 @@ makeParserTests =
            it ("Parses " ++ inFile) $
            do content <- T.readFile inFile
               let parseResult =
-                      first parseErrorPretty $ executeParser inFile exprP content
+                      first parseErrorPretty $ executeParser inFile (exprP <* eof) content
               parseResult `shouldSatisfy` \x ->
                   case x of
                     Left _ -> False
