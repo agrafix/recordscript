@@ -241,7 +241,23 @@ inferIf pos ifStmt =
 
 inferLet :: InferM m => Pos -> Let Pos -> m (Let TypedPos, Type)
 inferLet pos letStmt =
-    undefined --hmmm we need to deal with recursive stuff too?
+    -- todo: how to handle recursion?
+    -- note that we assume that all variable names are globally unique
+    -- at this point
+    do let (Annotated boundAnn boundVar) = l_boundVar letStmt
+       boundVarType <- getVarType pos boundVar
+       boundExprTyped <- inferExpr (l_boundExpr letStmt)
+       let boundExprType = getExprType boundExprTyped
+       _ <- unifyTypes pos boundVarType boundExprType
+       inTyped <- inferExpr (l_in letStmt)
+       pure
+           ( Let
+             { l_boundVar = Annotated (TypedPos boundAnn boundVarType) boundVar
+             , l_boundExpr = boundExprTyped
+             , l_in = inTyped
+             }
+           , getExprType inTyped
+           )
 
 inferExpr :: InferM m => Expr Pos -> m (Expr TypedPos)
 inferExpr expr =
@@ -286,3 +302,23 @@ example3 :: IO (Either Error (Expr TypedPos, InferState))
 example3 =
     runInferM $ inferExpr $
     EList (fakeA [ELit $ fakeA $ LChar 'a', ELit $ fakeA $ LInt 32])
+
+example4 :: IO (Either Error (Expr TypedPos, InferState))
+example4 =
+    runInferM $ inferExpr $
+    ELet $ fakeA $
+    Let
+    { l_boundVar = fakeA (Var "x")
+    , l_boundExpr = ELit (fakeA $ LInt 32)
+    , l_in = EList (fakeA [EVar $ fakeA $ Var "x", ELit $ fakeA $ LInt 32])
+    }
+
+example5 :: IO (Either Error (Expr TypedPos, InferState))
+example5 =
+    runInferM $ inferExpr $
+    ELet $ fakeA $
+    Let
+    { l_boundVar = fakeA (Var "x")
+    , l_boundExpr = ELit (fakeA $ LChar 'a')
+    , l_in = EList (fakeA [EVar $ fakeA $ Var "x", ELit $ fakeA $ LInt 32])
+    }

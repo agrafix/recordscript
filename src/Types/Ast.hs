@@ -8,9 +8,9 @@ import Data.Data
 import Data.Hashable
 import Data.Typeable
 import GHC.Generics
+import qualified Data.Generics as G
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
-
 
 newtype Var
     = Var { unVar :: T.Text }
@@ -40,8 +40,8 @@ data If a
 data Let a
     = Let
     { l_boundVar :: A a Var
-    , l_boundExpr :: WithA a Expr
-    , l_in :: WithA a Expr
+    , l_boundExpr :: Expr a
+    , l_in :: Expr a
     } deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
 data Expr a

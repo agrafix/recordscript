@@ -31,7 +31,7 @@ newtype RecordKey
 
 newtype Record v
     = Record { unRecord :: HM.HashMap RecordKey v}
-    deriving (Eq, Ord, Show, Generic, Data, Typeable)
+    deriving (Eq, Ord, Show, Generic, Data, Typeable, Functor, Foldable, Traversable)
 
 data Pos
     = Pos

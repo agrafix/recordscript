@@ -28,6 +28,7 @@ dependencies:
   - hashable
   - mtl
   - transformers
+  - syb >=0.4
 
 default-extensions:
   - ApplicativeDo
