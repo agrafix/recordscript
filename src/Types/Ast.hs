@@ -44,6 +44,12 @@ data Let a
     , l_in :: Expr a
     } deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
+data Lambda a
+    = Lambda
+    { l_args :: [A a Var]
+    , l_body :: Expr a
+    } deriving (Eq, Ord, Show, Generic, Data, Typeable)
+
 data Expr a
     = ELit (A a Literal)
     | EVar (A a Var)
@@ -51,7 +57,7 @@ data Expr a
     | ERecord (A a (Record (Expr a)))
     | EIf (WithA a If)
     | ELet (WithA a Let)
-    | ELambda [WithA a Pattern] (WithA a Expr)
-    | ECase (WithA a Expr) [(WithA a Pattern, WithA a Expr)]
+    | ELambda (WithA a Lambda)
     | EFunApp (A a Var) [WithA a Expr]
+    | ECase (WithA a Expr) [(WithA a Pattern, WithA a Expr)]
     deriving (Eq, Ord, Show, Generic, Data, Typeable)

@@ -206,6 +206,7 @@ getExprType expr =
       ERecord (Annotated x _) -> tp_type x
       EIf (Annotated x _) -> tp_type x
       ELet (Annotated x _) -> tp_type x
+      ELambda (Annotated x _) -> tp_type x
 
 getRecordType :: Record (Expr TypedPos) -> Record Type
 getRecordType (Record hm) =
@@ -259,6 +260,16 @@ inferLet pos letStmt =
            , getExprType inTyped
            )
 
+inferLambda :: InferM m => Pos -> Lambda Pos -> m (Lambda TypedPos, Type)
+inferLambda _ lambdaStmt =
+    do args <-
+           forM (l_args lambdaStmt) $ \(Annotated p var) ->
+           do varType <- getVarType p var
+              pure (Annotated (TypedPos p varType) var, varType)
+       body <- inferExpr (l_body lambdaStmt)
+       let lambdaType = TFun (map snd args) (getExprType body)
+       pure (Lambda (map fst args) body, lambdaType)
+
 inferExpr :: InferM m => Expr Pos -> m (Expr TypedPos)
 inferExpr expr =
     case expr of
@@ -282,6 +293,9 @@ inferExpr expr =
       ELet (Annotated p letStmt) ->
           do (letTyped, letType) <- inferLet p letStmt
              pure $ ELet (Annotated (TypedPos p letType) letTyped)
+      ELambda (Annotated p lambdaStmt) ->
+          do (lambdaTyped, lambdaType) <- inferLambda p lambdaStmt
+             pure $ ELambda (Annotated (TypedPos p lambdaType) lambdaTyped)
 
 -- Testing / Playground
 

@@ -21,12 +21,15 @@ newtype TypeConstructor
 
 data Type
     = TApp Type Type
-    -- ^ Type applicationve
+    -- ^ Type application
     | TVar TypeVar
     -- ^ Type variable
     | TCon TypeConstructor
     -- ^ Type constructor
     | TRec RecordType
+    -- ^ Record type
+    | TFun [Type] Type
+    -- ^ Function type
     deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
 data RecordType

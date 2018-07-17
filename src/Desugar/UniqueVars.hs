@@ -42,6 +42,7 @@ uniquify q@(Var x) =
                     }
                 pure v'
 
+-- todo: can we do scope checking here too?
 runUniquify :: (Show a, UniqueM m) => Expr a -> m (Expr a)
 runUniquify expr =
     case expr of
@@ -68,4 +69,10 @@ runUniquify expr =
              boundE <- runUniquify (l_boundExpr letVal)
              inE <- runUniquify (l_in letVal)
              pure $ Let var boundE inE
+      ELambda l ->
+          fmap ELambda $ flip mapMA l $ \lambdaVal ->
+          scoped $
+          do vars <- mapM (mapMA uniquify) (l_args lambdaVal)
+             bodyE <- runUniquify (l_body lambdaVal)
+             pure $ Lambda vars bodyE
       _ -> error $ "runUniquify: Not implemented: " ++ show expr
