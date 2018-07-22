@@ -22,18 +22,24 @@ lineComment :: Parser ()
 lineComment = L.skipLineComment "//"
 
 scn :: Parser ()
-scn = L.space space1 lineComment empty
+scn =
+    L.space (void $ takeWhile1P Nothing f) lineComment empty
+    where
+      f x = x == ' ' || x == '\t' || x == '\n' || x == '\r'
 
 sc :: Parser ()
 sc = L.space (void $ takeWhile1P Nothing f) lineComment empty
   where
     f x = x == ' ' || x == '\t'
 
+lexemeNl :: Parser a -> Parser a
+lexemeNl = L.lexeme scn
+
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme sc
 
 symbol :: T.Text -> Parser T.Text
-symbol = L.symbol sc
+symbol = L.symbol scn
 
 name :: Parser T.Text
 name =

@@ -1,15 +1,22 @@
+import Test.ParserPrettySpec
+
+import Parser.Expr
+import Parser.Shared
+import Pretty.Types
+import TypeCheck.InferExpr
+
 import Control.Monad
 import Data.Bifunctor
+import Data.Functor.Identity
 import Data.List (find)
+import Data.Monoid
 import System.Directory
 import System.FilePath
 import Test.Hspec
 import Text.Megaparsec (eof)
 import Text.Megaparsec.Error
+import qualified Data.Text as T
 import qualified Data.Text.IO as T
-
-import Parser.Expr
-import Parser.Shared
 
 getDirectoryFilePairs :: FilePath -> String -> String -> IO [(FilePath, Maybe FilePath)]
 getDirectoryFilePairs dir ext1 ext2 =
@@ -36,7 +43,29 @@ makeParserTests =
                     Left _ -> False
                     Right _ -> True
 
+makeTypeCheckerTests :: SpecWith ()
+makeTypeCheckerTests =
+    do testCandidates <-
+           runIO $ getDirectoryFilePairs "testcode/type-checker/expr" ".rcs" ".txt"
+       forM_ testCandidates $ \(inFile, outFile) ->
+           it ("Correctly type checks " ++ inFile) $
+           do content <- T.readFile inFile
+              expectedTypeString <-
+                  case outFile of
+                    Nothing -> fail ("Missing out file for " <> show inFile)
+                    Just ok -> T.strip <$> T.readFile ok
+              let parseResult =
+                      first parseErrorPretty $
+                      executeParser inFile (exprP <* eof) content
+                  typeCheckResult =
+                      second formatType . first show . runIdentity . runInferM . inferExpr
+                  formatType (expr, _) =
+                      prettyType $ getExprType expr
+              (parseResult >>= typeCheckResult) `shouldBe` Right expectedTypeString
+
 main :: IO ()
 main =
     hspec $
-    do describe "Parser" $ makeParserTests
+    do describe "Parser" makeParserTests
+       describe "Parser <-> Pretty roundTrip" parserPrettySpec
+       describe "Type checker" makeTypeCheckerTests

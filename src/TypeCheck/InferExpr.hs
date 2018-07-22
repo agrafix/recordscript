@@ -18,6 +18,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Text as T
 
+
 data TypedPos
     = TypedPos
     { tp_pos :: Pos
@@ -49,6 +50,7 @@ data ErrorMessage
 
 type InferM m = (MonadError Error m, MonadState InferState m)
 
+-- TODO: note that final pass through the AST assigning all variables is missing
 runInferM :: StateT InferState (ExceptT Error m) a -> m (Either Error (a, InferState))
 runInferM go =
     runExceptT $ runStateT go initSt
@@ -224,22 +226,20 @@ inferRecord (Record hm) =
 inferIf :: InferM m => Pos -> If Pos -> m (If TypedPos, Type)
 inferIf pos ifStmt =
     do elseTyped <- inferExpr (if_else ifStmt)
+       let elseType = getExprType elseTyped
        bodiesTyped <-
            forM (if_bodies ifStmt) $ \(cond, expr) ->
            do condTyped <- inferExpr cond
               exprTyped <- inferExpr expr
               _ <- unifyTypes pos N.tBool (getExprType condTyped)
+              _ <- unifyTypes pos elseType (getExprType exprTyped)
               pure (condTyped, exprTyped)
-       let elseType = getExprType elseTyped
-           bodyTypes = map (\(x, _) -> getExprType x) bodiesTyped
-       ifType <-
-           foldM (\resTy localTy -> unifyTypes pos resTy localTy) elseType bodyTypes
        let typedIf =
                If
                { if_bodies = bodiesTyped
                , if_else = elseTyped
                }
-       pure (typedIf, ifType)
+       pure (typedIf, elseType)
 
 inferLet :: InferM m => Pos -> Let Pos -> m (Let TypedPos, Type)
 inferLet pos letStmt =

@@ -61,6 +61,7 @@ varOnlyExpr = EVar <$> posAnnotated var
 
 exprP :: Parser (Expr Pos)
 exprP =
+    lexemeNl $
     ECase <$> posAnnotated caseP <|>
     EIf <$> posAnnotated ifP <|>
     ELit <$> posAnnotated literal <|>
