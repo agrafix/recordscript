@@ -59,8 +59,8 @@ makeTypeCheckerTests =
                       executeParser inFile (exprP <* eof) content
                   typeCheckResult =
                       second formatType . first show . runIdentity . runInferM . inferExpr
-                  formatType (expr, _) =
-                      prettyType $ getExprType expr
+                  formatType (expr, inferState) =
+                      prettyType $ getExprType $ resolvePass expr inferState
               (parseResult >>= typeCheckResult) `shouldBe` Right expectedTypeString
 
 main :: IO ()

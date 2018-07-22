@@ -14,16 +14,16 @@ import Data.Data
 import Data.Monoid
 import GHC.Generics
 import qualified Data.Foldable as F
+import qualified Data.Generics as G
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Text as T
-
 
 data TypedPos
     = TypedPos
     { tp_pos :: Pos
     , tp_type :: Type
-    } deriving (Show)
+    } deriving (Show, Data, Typeable)
 
 data InferState
     = InferState
@@ -49,6 +49,39 @@ data ErrorMessage
     deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
 type InferM m = (MonadError Error m, MonadState InferState m)
+
+resolveTypeVars :: Type -> HM.HashMap TypeVar Type -> Type
+resolveTypeVars t mp =
+    case t of
+      TApp x y -> TApp (resolveTypeVars x mp) (resolveTypeVars y mp)
+      TVar v -> traceTypeVar v mp
+      TCon x -> TCon x
+      TRec rt ->
+          TRec $
+          case rt of
+            ROpen r -> ROpen (handleRecord r)
+            RClosed r -> RClosed (handleRecord r)
+      TFun args result ->
+          TFun (fmap (flip resolveTypeVars mp) args) (resolveTypeVars result mp)
+    where
+      handleRecord (Record hm) =
+          Record $ HM.map (flip resolveTypeVars mp) hm
+
+traceTypeVar :: TypeVar -> HM.HashMap TypeVar Type -> Type
+traceTypeVar tv mp =
+    case HM.lookup tv mp of
+      Nothing ->
+          -- TODO: hmm should this be an error? probably not since there
+          -- are generic functions
+          TVar tv
+      Just typeEquivalence -> resolveTypeVars typeEquivalence mp
+
+resolvePass :: Expr TypedPos -> InferState -> Expr TypedPos
+resolvePass e infState =
+    G.everywhere (G.mkT resolveType) e
+    where
+      mp = ctx_equivMap $ is_context infState
+      resolveType (TypedPos pos ty) = TypedPos pos (resolveTypeVars ty mp)
 
 -- TODO: note that final pass through the AST assigning all variables is missing
 runInferM :: StateT InferState (ExceptT Error m) a -> m (Either Error (a, InferState))
