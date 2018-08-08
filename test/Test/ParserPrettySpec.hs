@@ -2,13 +2,18 @@ module Test.ParserPrettySpec where
 
 import Parser.Literal
 import Parser.Shared
+import Parser.Types
 import Pretty.Literal
+import Pretty.Types
 import Types.Ast
+import Types.Common
+import Types.Types
 
 import Data.Bifunctor
 import Test.Hspec
 import Text.Megaparsec (eof)
 import Text.Megaparsec.Error
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
 roundTrip :: (Eq x, Show x) => x -> (x -> T.Text) -> Parser p -> (p -> x) -> Expectation
@@ -47,9 +52,39 @@ literalSpec =
        it "works for chars" $ go (LChar 'x')
        it "works for strings" $ go (LString "Hello from the air")
        it "works for bools" $
-           do roundTrip (LBool False) prettyLiteral literal id
-              roundTrip (LBool True) prettyLiteral literal id
+           do go (LBool False)
+              go (LBool True)
+    where
+        go e = roundTrip e prettyLiteral literal id
+
+typeSpec :: Spec
+typeSpec =
+    do it "works for type variabels" $
+           go (TVar (TypeVar "var"))
+       it "works for type constructors" $
+           go (TCon (TypeConstructor "Unit"))
+       it "works for type application" $
+           let arg1 = TCon (TypeConstructor "List")
+               arg2 = TVar (TypeVar "a")
+           in go (TApp arg1 arg2)
+       it "works for open record types" $
+           go $ TRec $ ROpen $ Record $
+           HM.fromList [(RecordKey "foo", TVar (TypeVar "a"))]
+       it "works for closed record types" $
+           go $ TRec $ RClosed $ Record $
+           HM.fromList [(RecordKey "foo", TVar (TypeVar "a"))]
+       it "works for functions with no arguments" $
+           go (TFun [] (TVar (TypeVar "a")))
+       it "works for functions" $
+           let arg1 = TCon (TypeConstructor "String")
+               arg2 = TVar (TypeVar "a")
+               res = TCon (TypeConstructor "Unit")
+           in go (TFun [arg1, arg2] res)
+    where
+        go e =
+            roundTrip e prettyType typeP id
 
 parserPrettySpec :: Spec
 parserPrettySpec =
     do describe "literals" literalSpec
+       describe "types" typeSpec

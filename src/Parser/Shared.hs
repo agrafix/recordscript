@@ -46,6 +46,11 @@ name =
     T.pack <$>
     lexeme ((:) <$> letterChar <*> many alphaNumChar) <?> "name"
 
+tyConName :: Parser T.Text
+tyConName =
+    T.pack <$>
+    lexeme ((:) <$> oneOf ['A'..'Z'] <*> many alphaNumChar) <?> "type constructor name"
+
 var :: Parser Var
 var = Var <$> name
 
@@ -55,21 +60,34 @@ parens = between (symbol "(") (symbol ")")
 braces :: Parser a -> Parser a
 braces = between (symbol "{") (symbol "}")
 
+bracesStrict :: Parser a -> Parser a
+bracesStrict = between (symbol "{|") (symbol "|}")
+
 angles :: Parser a -> Parser a
 angles = between (symbol "<") (symbol ">")
 
 brackets :: Parser a -> Parser a
 brackets = between (symbol "[") (symbol "]")
 
-record :: Parser v -> Parser (TC.Record v)
-record valP =
-    braces $
+data RecordParserMode
+    = RpmStrict
+    | RpmNormal
+    deriving (Show, Eq)
+
+record :: RecordParserMode -> Parser v -> Parser (TC.Record v)
+record mode valP =
+    bracesWrapper $
     fmap (TC.Record . HM.fromList) $
     flip sepBy (symbol ",") $
     do key <- TC.RecordKey <$> name
        _ <- symbol ":"
        val <- valP
        pure (key, val)
+    where
+        bracesWrapper =
+            case mode of
+              RpmStrict -> bracesStrict
+              RpmNormal -> braces
 
 myPos :: Parser TC.Pos
 myPos =

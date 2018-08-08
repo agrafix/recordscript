@@ -19,4 +19,4 @@ patternP =
             PAny pos <$ char '_' <|>
             PLit <$> posAnnotated literal <|>
             PVar <$> posAnnotated var <|>
-            PRecord <$> posAnnotated (record patternP)
+            PRecord <$> posAnnotated (record RpmNormal patternP)

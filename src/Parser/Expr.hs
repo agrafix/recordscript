@@ -67,7 +67,7 @@ exprP =
     ELit <$> posAnnotated literal <|>
     varOnlyExpr <|>
     EList <$> posAnnotated list <|>
-    ERecord <$> posAnnotated (record exprP) <|>
+    ERecord <$> posAnnotated (record RpmNormal exprP) <|>
     ELambda <$> posAnnotated lambdaP <|>
     EFunApp <$> posAnnotated funAppP
     -- TODO: let is missing
