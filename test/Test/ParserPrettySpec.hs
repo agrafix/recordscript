@@ -17,7 +17,22 @@ roundTrip value pretty parse unwrap =
            parseResult =
                first parseErrorPretty $
                executeParser "<test>" (parse <* eof) pv
-       second unwrap parseResult `shouldBe` Right value
+           errorPrefix =
+               "Failed to parse: \n------\n"
+               ++ T.unpack pv ++ "\n------\n"
+           check res =
+               case res of
+                 Left errMsg ->
+                     expectationFailure $
+                     errorPrefix ++ errMsg
+                 Right parsedVal ->
+                     if parsedVal /= value
+                     then expectationFailure $
+                          errorPrefix
+                          ++ "Parsed: " ++ show parsedVal ++ "\n"
+                          ++ "Expected: " ++ show value
+                     else pure ()
+       check $ second unwrap parseResult
 
 literalSpec :: Spec
 literalSpec =
