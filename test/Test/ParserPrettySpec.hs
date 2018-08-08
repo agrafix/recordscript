@@ -21,12 +21,16 @@ roundTrip value pretty parse unwrap =
 
 literalSpec :: Spec
 literalSpec =
-    do it "works for ints" $ roundTrip (LInt 3) prettyLiteral literal id
-       it "works for negative ints" $ roundTrip (LInt (-3)) prettyLiteral literal id
-       it "works for floats" $ roundTrip (LFloat 3) prettyLiteral literal id
-       it "works for negative floats" $ roundTrip (LFloat (-3)) prettyLiteral literal id
-       it "works for chars" $ roundTrip (LChar 'x') prettyLiteral literal id
-       it "works for strings" $ roundTrip (LString "Hello from the air") prettyLiteral literal id
+    do it "works for ints" $ go (LInt 3)
+       it "works for negative ints" $ go (LInt (-3))
+       it "works for floats" $ go (LFloat 3)
+       it "works for floats 2" $ go (LFloat 3.0)
+       it "works for floats 3" $ go (LFloat 3.0001)
+       it "works for floats 4" $ go (LFloat 0.001)
+       it "works for floats 5" $ go (LFloat 110000.0001)
+       it "works for negative floats" $ go (LFloat (-3))
+       it "works for chars" $ go (LChar 'x')
+       it "works for strings" $ go (LString "Hello from the air")
        it "works for bools" $
            do roundTrip (LBool False) prettyLiteral literal id
               roundTrip (LBool True) prettyLiteral literal id
