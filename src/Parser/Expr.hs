@@ -59,9 +59,20 @@ caseP =
 varOnlyExpr :: Parser (Expr Pos)
 varOnlyExpr = EVar <$> posAnnotated var
 
+letP :: Parser (Let Pos)
+letP =
+    do _ <- symbol "let"
+       boundVar <- posAnnotated var
+       _ <- symbol "="
+       boundExpr <- exprP
+       _ <- symbol ";"
+       inExpr <- exprP
+       pure (Let boundVar boundExpr inExpr)
+
 exprP :: Parser (Expr Pos)
 exprP =
     lexemeNl $
+    try (ELet <$> posAnnotated letP) <|>
     ECase <$> posAnnotated caseP <|>
     EIf <$> posAnnotated ifP <|>
     ELit <$> posAnnotated literal <|>
@@ -70,4 +81,3 @@ exprP =
     ERecord <$> posAnnotated (record RpmNormal exprP) <|>
     ELambda <$> posAnnotated lambdaP <|>
     EFunApp <$> posAnnotated funAppP
-    -- TODO: let is missing
