@@ -94,12 +94,17 @@ patternSpec =
        it "works for literals" $
            go someLit
        it "works for records" $
+           go someRecord
+       it "works for nested records" $
            go $ PRecord $ fakeA $ Record $
-           HM.fromList [(RecordKey "foo", someVar), (RecordKey "bar", someLit)]
+           HM.fromList [(RecordKey "foo", someVar), (RecordKey "bar", someRecord)]
        it "works for any" $
            go $ PAny dummyPos
     where
         dummyPos = Pos "x" Nothing Nothing
+        someRecord =
+            PRecord $ fakeA $ Record $
+            HM.fromList [(RecordKey "foo", someVar), (RecordKey "bar", someLit)]
         someVar = PVar $ fakeA (Var "var")
         someLit = PLit $ fakeA (LString "asf")
         clobberA :: Pattern Pos -> Pattern Pos
