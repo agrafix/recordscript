@@ -1,9 +1,11 @@
 module Test.ParserPrettySpec where
 
 import Parser.Literal
+import Parser.Pattern
 import Parser.Shared
 import Parser.Types
 import Pretty.Literal
+import Pretty.Pattern
 import Pretty.Types
 import Types.Ast
 import Types.Common
@@ -13,6 +15,7 @@ import Data.Bifunctor
 import Test.Hspec
 import Text.Megaparsec (eof)
 import Text.Megaparsec.Error
+import qualified Data.Generics as G
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
@@ -84,7 +87,31 @@ typeSpec =
         go e =
             roundTrip e prettyType typeP id
 
+patternSpec :: Spec
+patternSpec =
+    do it "works for pattern variables" $
+           go someVar
+       it "works for literals" $
+           go someLit
+       it "works for records" $
+           go $ PRecord $ fakeA $ Record $
+           HM.fromList [(RecordKey "foo", someVar), (RecordKey "bar", someLit)]
+       it "works for any" $
+           go $ PAny dummyPos
+    where
+        dummyPos = Pos "x" Nothing Nothing
+        someVar = PVar $ fakeA (Var "var")
+        someLit = PLit $ fakeA (LString "asf")
+        clobberA :: Pattern Pos -> Pattern Pos
+        clobberA e =
+            let run (Pos _ _ _) = dummyPos
+            in G.everywhere (G.mkT run) e
+        fakeA = Annotated dummyPos
+        go e =
+            roundTrip e prettyPattern patternP clobberA
+
 parserPrettySpec :: Spec
 parserPrettySpec =
     do describe "literals" literalSpec
        describe "types" typeSpec
+       describe "pattern" patternSpec
