@@ -1,0 +1,8 @@
+let x = 5;
+let y = 10;
+if (true) {
+  let z = x;
+  z
+} else {
+  y
+}
