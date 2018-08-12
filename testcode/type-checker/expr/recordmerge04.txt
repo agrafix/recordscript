@@ -1,0 +1,1 @@
+{|foo: String,baz: Bool,fizz: Float,bar: Int|}

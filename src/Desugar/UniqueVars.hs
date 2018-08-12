@@ -66,6 +66,10 @@ runUniquify expr =
           fmap ERecord $
           flip mapMA r $ \recVal ->
           mapM runUniquify recVal
+      ERecordMerge r ->
+          fmap ERecordMerge $
+          flip mapMA r $ \recMerge ->
+          RecordMerge <$> runUniquify (rm_target recMerge) <*> mapM runUniquify (rm_mergeIn recMerge)
       EIf i ->
           fmap EIf $ flip mapMA i $ \iVal ->
           do bodies <-

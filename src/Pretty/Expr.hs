@@ -16,6 +16,7 @@ prettyExpr e =
       EVar (Annotated _ (Var x)) -> x
       EList (Annotated _ exprs) -> "[" <> T.intercalate "," (map prettyExpr exprs) <> "]"
       ERecord (Annotated _ r) -> prettyRecord r prettyExpr
+      ERecordMerge (Annotated _ r) -> prettyMerge r
       EIf (Annotated _ eIf) -> prettyIf eIf
       ELet (Annotated _ eLet) -> prettyLet eLet
       ELambda (Annotated _ eLambda) -> prettyLambda eLambda
@@ -63,3 +64,13 @@ prettyFunApp fApp =
     "(" <> prettyExpr (fa_receiver fApp) <> ")("
     <> T.intercalate "," (map prettyExpr (fa_args fApp))
     <> ")"
+
+prettyMerge :: RecordMerge a -> T.Text
+prettyMerge rm =
+    "{ \n"
+    <> "..." <> prettyExpr (rm_target rm) <> ", \n"
+    <> T.intercalate ", \n" (map handleE (rm_mergeIn rm))
+    <> "}"
+    where
+      handleE e =
+          "..." <> prettyExpr e

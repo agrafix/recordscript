@@ -124,6 +124,7 @@ exprSpec =
        it "works for lists" $ go someList
        it "works for nested lists" $ go someNestedList
        it "works for records" $ go someRecord
+       it "works for record merge" $ go someMerge
        it "works for if" $ go someIf
        it "works for let" $ go someLet
        it "works for lambda" $ go someLambda
@@ -165,6 +166,11 @@ exprSpec =
                     [ (PLit $ fakeA (LString "asf"), someLambda)
                     , (PVar $ fakeA (Var "y"), someRecord)
                     ]
+            }
+        someMerge =
+            ERecordMerge $ fakeA RecordMerge
+            { rm_target = someVar
+            , rm_mergeIn = [someVar, someRecord]
             }
         dummyPos = Pos "x" Nothing Nothing
         clobberA :: Expr Pos -> Expr Pos

@@ -59,11 +59,18 @@ data Case a
     , c_cases :: [(Pattern a, Expr a)]
     } deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
+data RecordMerge a
+    = RecordMerge
+    { rm_target :: Expr a
+    , rm_mergeIn :: [Expr a]
+    } deriving (Eq, Ord, Show, Generic, Data, Typeable)
+
 data Expr a
     = ELit (A a Literal)
     | EVar (A a Var)
     | EList (A a [Expr a])
     | ERecord (A a (Record (Expr a)))
+    | ERecordMerge (WithA a RecordMerge)
     | EIf (WithA a If)
     | ELet (WithA a Let)
     | ELambda (WithA a Lambda)

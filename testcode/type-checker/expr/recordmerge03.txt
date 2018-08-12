@@ -1,0 +1,1 @@
+{|foo: String,bim: Int,bar: Int|}

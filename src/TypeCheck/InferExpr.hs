@@ -46,6 +46,7 @@ data Error
 
 data ErrorMessage
     = ETypeMismatch Type Type
+    | ERecordMergeTypeMismatch Type
     deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
 type InferM m = (MonadError Error m, MonadState InferState m)
@@ -238,6 +239,7 @@ getExprType expr =
       EVar (Annotated x _) -> tp_type x
       EList (Annotated x _) -> tp_type x
       ERecord (Annotated x _) -> tp_type x
+      ERecordMerge (Annotated x _) -> tp_type x
       EIf (Annotated x _) -> tp_type x
       ELet (Annotated x _) -> tp_type x
       ELambda (Annotated x _) -> tp_type x
@@ -255,6 +257,46 @@ inferRecord (Record hm) =
     forM (HM.toList hm) $ \(label, val) ->
     do ty <- inferExpr val
        pure (label, ty)
+
+type MergeMapTypes = HM.HashMap RecordKey Type
+
+inferMerge :: forall m. InferM m => Pos -> RecordMerge Pos -> m (RecordMerge TypedPos, Type)
+inferMerge pos recMerge =
+    do targetTyped <- inferExpr (rm_target recMerge)
+       sourcesTyped <- mapM inferExpr (rm_mergeIn recMerge)
+       mergedTypeMap <-
+           foldM computeMap mempty (targetTyped : sourcesTyped)
+       let typedMerge =
+               RecordMerge
+               { rm_target = targetTyped
+               , rm_mergeIn = sourcesTyped
+               }
+           mergeType =
+               TRec $ RClosed $ Record mergedTypeMap
+       pure (typedMerge, mergeType)
+    where
+        computeMap :: MergeMapTypes -> Expr TypedPos -> m MergeMapTypes
+        computeMap typeMap checkingExpr =
+            -- TODO: open vs close merging?
+            -- TODO: also, we need to replace all variables here otherwise this won't work
+            case getExprType checkingExpr of
+              TRec (ROpen r) -> handle r typeMap
+              TRec (RClosed r) -> handle r typeMap
+              t -> throwError $ Error pos (ERecordMergeTypeMismatch t)
+
+        handle :: Record Type -> MergeMapTypes -> m MergeMapTypes
+        handle (Record rt) mmt =
+            fmap HM.unions $
+            forM (HM.toList rt) $ \(k, ty) ->
+            case HM.lookup k mmt of
+              Nothing ->
+                  do fresh <- TVar <$> freshTypeVar
+                     _ <- unifyTypes pos fresh ty
+                     pure $ HM.insert k fresh mmt
+              Just otherTy ->
+                  do _ <- unifyTypes pos otherTy ty
+                     pure mmt
+
 
 inferIf :: InferM m => Pos -> If Pos -> m (If TypedPos, Type)
 inferIf pos ifStmt =
@@ -382,6 +424,9 @@ inferExpr expr =
           do recordTyped <- inferRecord record
              let recordType = TRec $ RClosed $ getRecordType recordTyped
              pure $ ERecord (Annotated (TypedPos p recordType) recordTyped)
+      ERecordMerge (Annotated p recordMerge) ->
+          do (mergeTyped, mergeType) <- inferMerge p recordMerge
+             pure $ ERecordMerge (Annotated (TypedPos p mergeType) mergeTyped)
       EIf (Annotated p ifStmt) ->
           do (ifTyped, ifType) <- inferIf p ifStmt
              pure $ EIf (Annotated (TypedPos p ifType) ifTyped)

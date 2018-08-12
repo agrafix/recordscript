@@ -7,6 +7,7 @@ import Types.Ast
 import Types.Common
 
 import Text.Megaparsec hiding (Pos)
+import qualified Data.HashMap.Strict as HM
 
 list :: Parser [Expr Pos]
 list =
@@ -70,6 +71,30 @@ letP =
        inExpr <- exprP
        pure (Let boundVar boundExpr inExpr)
 
+mergeP :: Parser (RecordMerge Pos)
+mergeP =
+    braces $
+    do _ <- symbol "..."
+       targetE <- exprP
+       _ <- symbol ","
+       sourcesE <-
+           try simpleP <|> complexP
+       pure (RecordMerge targetE sourcesE)
+    where
+        simpleP =
+            do pos <- myPos
+               kvs <-
+                   flip sepBy1 (symbol ",") $
+                   do key <- RecordKey <$> name
+                      _ <- symbol ":"
+                      val <- exprP
+                      pure (key, val)
+               pure [ERecord $ Annotated pos $ Record $ HM.fromList kvs]
+        complexP =
+            flip sepBy1 (symbol ",") $
+            do _ <- symbol "..."
+               exprP
+
 exprP :: Parser (Expr Pos)
 exprP =
     lexemeNl $
@@ -79,6 +104,7 @@ exprP =
     ELit <$> posAnnotated literal <|>
     varOnlyExpr <|>
     EList <$> posAnnotated list <|>
-    ERecord <$> posAnnotated (record RpmNormal exprP) <|>
+    try (ERecord <$> posAnnotated (record RpmNormal exprP)) <|>
+    try (ERecordMerge <$> posAnnotated mergeP) <|>
     try (ELambda <$> posAnnotated lambdaP) <|>
     EFunApp <$> posAnnotated funAppP
