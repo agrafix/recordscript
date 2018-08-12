@@ -101,6 +101,11 @@ runInferM go =
           , ctx_equivMap = mempty
           }
 
+resolvedType :: InferM m => Type -> m Type
+resolvedType ty =
+    do ctx <- gets is_context
+       pure $ resolveTypeVars ty $ ctx_equivMap ctx
+
 freshTypeVar :: InferM m => m TypeVar
 freshTypeVar =
     do s <- get
@@ -277,9 +282,9 @@ inferMerge pos recMerge =
     where
         computeMap :: MergeMapTypes -> Expr TypedPos -> m MergeMapTypes
         computeMap typeMap checkingExpr =
+            resolvedType (getExprType checkingExpr) >>= \resTy ->
             -- TODO: open vs close merging?
-            -- TODO: also, we need to replace all variables here otherwise this won't work
-            case getExprType checkingExpr of
+            case resTy of
               TRec (ROpen r) -> handle r typeMap
               TRec (RClosed r) -> handle r typeMap
               t -> throwError $ Error pos (ERecordMergeTypeMismatch t)
