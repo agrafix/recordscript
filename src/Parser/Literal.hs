@@ -52,7 +52,7 @@ numberP =
 
 literal :: Parser Literal
 literal =
-    numberP <|>
+    (numberP <?> "number") <|>
     LChar <$> charP <|>
     LString <$> stringP <|>
     LBool <$> bool

@@ -52,7 +52,7 @@ tyConName =
     lexeme ((:) <$> oneOf ['A'..'Z'] <*> many alphaNumChar) <?> "type constructor name"
 
 var :: Parser Var
-var = Var <$> name
+var = Var <$> name <?> "variable"
 
 parens :: Parser a -> Parser a
 parens = between (symbol "(") (symbol ")")

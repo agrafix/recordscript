@@ -1,9 +1,11 @@
 module Test.ParserPrettySpec where
 
+import Parser.Expr
 import Parser.Literal
 import Parser.Pattern
 import Parser.Shared
 import Parser.Types
+import Pretty.Expr
 import Pretty.Literal
 import Pretty.Pattern
 import Pretty.Types
@@ -115,8 +117,67 @@ patternSpec =
         go e =
             roundTrip e prettyPattern patternP clobberA
 
+exprSpec :: Spec
+exprSpec =
+    do it "works for literals" $ go someLit
+       it "works for vars" $ go someVar
+       it "works for lists" $ go someList
+       it "works for nested lists" $ go someNestedList
+       it "works for records" $ go someRecord
+       it "works for if" $ go someIf
+       it "works for let" $ go someLet
+       it "works for lambda" $ go someLambda
+       it "works for fun app" $ go someFunApp
+       it "works for case" $ go someCase
+    where
+        someLit = ELit $ fakeA (LString "asd")
+        someVar = EVar $ fakeA (Var "x")
+        someList = EList $ fakeA [someLit, someVar]
+        someNestedList = EList $ fakeA [someList, someVar]
+        someRecord =
+            ERecord $ fakeA $ Record $
+            HM.fromList [(RecordKey "foo", someVar), (RecordKey "bar", someLit)]
+        someIf =
+            EIf $ fakeA If
+            { if_bodies = [(someLit, someVar), (someVar, someRecord)]
+            , if_else = someRecord
+            }
+        someLet =
+            ELet $ fakeA Let
+            { l_boundVar = fakeA (Var "xx")
+            , l_boundExpr = someIf
+            , l_in = someNestedList
+            }
+        someLambda =
+            ELambda $ fakeA Lambda
+            { l_args = [fakeA (Var "yy"), fakeA (Var "zz")]
+            , l_body = someLet
+            }
+        someFunApp =
+            EFunApp $ fakeA FunApp
+            { fa_receiver = someVar
+            , fa_args = [someIf, someRecord, someLet]
+            }
+        someCase =
+            ECase $ fakeA Case
+            { c_matchOn = someNestedList
+            , c_cases =
+                    [ (PLit $ fakeA (LString "asf"), someLambda)
+                    , (PVar $ fakeA (Var "y"), someRecord)
+                    ]
+            }
+        dummyPos = Pos "x" Nothing Nothing
+        clobberA :: Expr Pos -> Expr Pos
+        clobberA e =
+            let run (Pos _ _ _) = dummyPos
+            in G.everywhere (G.mkT run) e
+        fakeA = Annotated dummyPos
+        go e =
+            roundTrip e prettyExpr exprP clobberA
+
 parserPrettySpec :: Spec
 parserPrettySpec =
     do describe "literals" literalSpec
        describe "types" typeSpec
        describe "pattern" patternSpec
+       describe "expr" exprSpec

@@ -1,5 +1,6 @@
 module Pretty.Shared where
 
+import Types.Ast
 import Types.Common
 
 import Data.Monoid
@@ -12,3 +13,6 @@ prettyRecord (Record hm) printVal =
     where
       makePair (RecordKey k, v) =
           k <> ": " <> printVal v
+
+prettyVar :: Var -> T.Text
+prettyVar (Var x) = x

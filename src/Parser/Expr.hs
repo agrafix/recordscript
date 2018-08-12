@@ -49,10 +49,11 @@ caseP =
        matchOn <- parens exprP
        cases <-
            braces $
-           flip sepBy (symbol ";") $
+           some $
            do pat <- lexeme patternP
               _ <- symbol "->"
               expr <- exprP
+              _ <- symbol ";"
               pure (pat, expr)
        pure (Case matchOn cases)
 
@@ -79,5 +80,5 @@ exprP =
     varOnlyExpr <|>
     EList <$> posAnnotated list <|>
     ERecord <$> posAnnotated (record RpmNormal exprP) <|>
-    ELambda <$> posAnnotated lambdaP <|>
+    try (ELambda <$> posAnnotated lambdaP) <|>
     EFunApp <$> posAnnotated funAppP
