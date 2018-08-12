@@ -17,6 +17,7 @@ prettyExpr e =
       EList (Annotated _ exprs) -> "[" <> T.intercalate "," (map prettyExpr exprs) <> "]"
       ERecord (Annotated _ r) -> prettyRecord r prettyExpr
       ERecordMerge (Annotated _ r) -> prettyMerge r
+      ERecordAccess (Annotated _ r) -> prettyAccess r
       EIf (Annotated _ eIf) -> prettyIf eIf
       ELet (Annotated _ eLet) -> prettyLet eLet
       ELambda (Annotated _ eLambda) -> prettyLambda eLambda
@@ -74,3 +75,7 @@ prettyMerge rm =
     where
       handleE e =
           "..." <> prettyExpr e
+
+prettyAccess :: RecordAccess a -> T.Text
+prettyAccess ra =
+    prettyExpr (ra_record ra) <> "." <> unRecordKey (ra_field ra)

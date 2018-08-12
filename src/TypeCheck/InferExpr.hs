@@ -47,6 +47,8 @@ data Error
 data ErrorMessage
     = ETypeMismatch Type Type
     | ERecordMergeTypeMismatch Type
+    | ERecordAccessTypeMismatch Type RecordKey
+    | ERecordAccessUnknown (Record Type) RecordKey
     deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
 type InferM m = (MonadError Error m, MonadState InferState m)
@@ -245,6 +247,7 @@ getExprType expr =
       EList (Annotated x _) -> tp_type x
       ERecord (Annotated x _) -> tp_type x
       ERecordMerge (Annotated x _) -> tp_type x
+      ERecordAccess (Annotated x _) -> tp_type x
       EIf (Annotated x _) -> tp_type x
       ELet (Annotated x _) -> tp_type x
       ELambda (Annotated x _) -> tp_type x
@@ -302,6 +305,22 @@ inferMerge pos recMerge =
                   do _ <- unifyTypes pos otherTy ty
                      pure mmt
 
+inferAccess :: InferM m => Pos -> RecordAccess Pos -> m (RecordAccess TypedPos, Type)
+inferAccess pos recAccess =
+    do recordTyped <- inferExpr (ra_record recAccess)
+       resTy <- resolvedType (getExprType recordTyped)
+       exprType <-
+           case resTy of
+             TRec (ROpen r) -> handle r
+             TRec (RClosed r) -> handle r
+             t -> throwError $ Error pos (ERecordAccessTypeMismatch t fld)
+       pure (RecordAccess recordTyped fld, exprType)
+    where
+        fld = ra_field recAccess
+        handle r@(Record hm) =
+            case HM.lookup fld hm of
+              Just ty -> pure ty
+              Nothing -> throwError $ Error pos (ERecordAccessUnknown r fld)
 
 inferIf :: InferM m => Pos -> If Pos -> m (If TypedPos, Type)
 inferIf pos ifStmt =
@@ -432,6 +451,9 @@ inferExpr expr =
       ERecordMerge (Annotated p recordMerge) ->
           do (mergeTyped, mergeType) <- inferMerge p recordMerge
              pure $ ERecordMerge (Annotated (TypedPos p mergeType) mergeTyped)
+      ERecordAccess (Annotated p recordAccess) ->
+          do (accessTyped, accessType) <- inferAccess p recordAccess
+             pure $ ERecordAccess (Annotated (TypedPos p accessType) accessTyped)
       EIf (Annotated p ifStmt) ->
           do (ifTyped, ifType) <- inferIf p ifStmt
              pure $ EIf (Annotated (TypedPos p ifType) ifTyped)

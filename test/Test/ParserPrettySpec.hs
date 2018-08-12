@@ -125,6 +125,8 @@ exprSpec =
        it "works for nested lists" $ go someNestedList
        it "works for records" $ go someRecord
        it "works for record merge" $ go someMerge
+       it "works for simple record access" $ go someRecordAccess
+       it "works for nested record access" $ go someRecordAccessNested
        it "works for if" $ go someIf
        it "works for let" $ go someLet
        it "works for lambda" $ go someLambda
@@ -171,6 +173,16 @@ exprSpec =
             ERecordMerge $ fakeA RecordMerge
             { rm_target = someVar
             , rm_mergeIn = [someVar, someRecord]
+            }
+        someRecordAccess =
+            ERecordAccess $ fakeA RecordAccess
+            { ra_record = someRecord
+            , ra_field = RecordKey "foo"
+            }
+        someRecordAccessNested =
+            ERecordAccess $ fakeA RecordAccess
+            { ra_record = someRecordAccess
+            , ra_field = RecordKey "bar"
             }
         dummyPos = Pos "x" Nothing Nothing
         clobberA :: Expr Pos -> Expr Pos

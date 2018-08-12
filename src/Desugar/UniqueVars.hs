@@ -69,7 +69,15 @@ runUniquify expr =
       ERecordMerge r ->
           fmap ERecordMerge $
           flip mapMA r $ \recMerge ->
-          RecordMerge <$> runUniquify (rm_target recMerge) <*> mapM runUniquify (rm_mergeIn recMerge)
+          RecordMerge
+          <$> runUniquify (rm_target recMerge)
+          <*> mapM runUniquify (rm_mergeIn recMerge)
+      ERecordAccess r ->
+          fmap ERecordAccess $
+          flip mapMA r $ \recAccess ->
+          RecordAccess
+          <$> runUniquify (ra_record recAccess)
+          <*> pure (ra_field recAccess)
       EIf i ->
           fmap EIf $ flip mapMA i $ \iVal ->
           do bodies <-

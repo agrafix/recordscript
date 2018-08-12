@@ -65,12 +65,19 @@ data RecordMerge a
     , rm_mergeIn :: [Expr a]
     } deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
+data RecordAccess a
+    = RecordAccess
+    { ra_record :: Expr a
+    , ra_field :: RecordKey
+    } deriving (Eq, Ord, Show, Generic, Data, Typeable)
+
 data Expr a
     = ELit (A a Literal)
     | EVar (A a Var)
     | EList (A a [Expr a])
     | ERecord (A a (Record (Expr a)))
     | ERecordMerge (WithA a RecordMerge)
+    | ERecordAccess (WithA a RecordAccess)
     | EIf (WithA a If)
     | ELet (WithA a Let)
     | ELambda (WithA a Lambda)

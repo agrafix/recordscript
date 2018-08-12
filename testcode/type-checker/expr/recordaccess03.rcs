@@ -1,0 +1,2 @@
+let r = {foo: true, bar: 312};
+r.bar

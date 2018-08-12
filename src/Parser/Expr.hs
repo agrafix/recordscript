@@ -6,6 +6,7 @@ import Parser.Shared
 import Types.Ast
 import Types.Common
 
+import Data.List (foldl')
 import Text.Megaparsec hiding (Pos)
 import qualified Data.HashMap.Strict as HM
 
@@ -95,16 +96,44 @@ mergeP =
             do _ <- symbol "..."
                exprP
 
+accessP :: Parser (RecordAccess Pos)
+accessP =
+    do source <- lexeme accessLhsExprP
+       _ <- symbol "."
+       key <- RecordKey <$> name
+       pure (RecordAccess source key)
+
+accessExprP :: Parser (Expr Pos)
+accessExprP =
+    do lhs <- lexeme accessLhsExprP
+       _ <- symbol "."
+       path <- sepBy1 ((,) <$> (RecordKey <$> name) <*> myPos) (symbol ".")
+       case path of
+         [] -> fail "Internal parsing error. SepBy1 returned an empty list."
+         (firstField : xs) ->
+             pure $
+             foldl' applyToLhs (applyToLhs lhs firstField) xs
+    where
+        applyToLhs lhs (field, pos) = ERecordAccess (Annotated pos (RecordAccess lhs field))
+
+accessLhsExprP :: Parser (Expr Pos)
+accessLhsExprP =
+    try (EFunApp <$> posAnnotated funAppP) <|>
+    try (ERecord <$> posAnnotated (record RpmNormal exprP)) <|>
+    try (ERecordMerge <$> posAnnotated mergeP) <|>
+    varOnlyExpr
+
 exprP :: Parser (Expr Pos)
 exprP =
     lexemeNl $
     try (ELet <$> posAnnotated letP) <|>
-    ECase <$> posAnnotated caseP <|>
-    EIf <$> posAnnotated ifP <|>
+    try (ECase <$> posAnnotated caseP) <|>
+    try (EIf <$> posAnnotated ifP) <|>
     ELit <$> posAnnotated literal <|>
-    varOnlyExpr <|>
+    try accessExprP <|>
     EList <$> posAnnotated list <|>
     try (ERecord <$> posAnnotated (record RpmNormal exprP)) <|>
     try (ERecordMerge <$> posAnnotated mergeP) <|>
     try (ELambda <$> posAnnotated lambdaP) <|>
-    EFunApp <$> posAnnotated funAppP
+    try (EFunApp <$> posAnnotated funAppP) <|>
+    varOnlyExpr
