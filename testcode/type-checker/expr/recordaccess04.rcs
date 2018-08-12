@@ -1,0 +1,2 @@
+let r = {foo: true, bar: {bim: {bom: 32}}};
+r.bar.bim.bom
