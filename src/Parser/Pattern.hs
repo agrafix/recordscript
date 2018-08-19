@@ -4,8 +4,8 @@ where
 
 import Parser.Literal
 import Parser.Shared
+import Types.Annotation
 import Types.Ast
-import Types.Common
 
 import Text.Megaparsec hiding (Pos)
 import Text.Megaparsec.Char

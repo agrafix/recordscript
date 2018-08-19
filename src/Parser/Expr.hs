@@ -3,6 +3,7 @@ module Parser.Expr where
 import Parser.Literal
 import Parser.Pattern
 import Parser.Shared
+import Types.Annotation
 import Types.Ast
 import Types.Common
 

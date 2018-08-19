@@ -2,8 +2,8 @@ module Pretty.Pattern (prettyPattern) where
 
 import Pretty.Literal
 import Pretty.Shared
+import Types.Annotation
 import Types.Ast
-import Types.Common
 
 import qualified Data.Text as T
 

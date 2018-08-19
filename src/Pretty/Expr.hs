@@ -3,6 +3,7 @@ module Pretty.Expr (prettyExpr) where
 import Pretty.Literal
 import Pretty.Pattern
 import Pretty.Shared
+import Types.Annotation
 import Types.Ast
 import Types.Common
 

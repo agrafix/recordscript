@@ -1,6 +1,7 @@
 module Parser.Shared where
 
 import Types.Ast
+import qualified Types.Annotation as TC
 import qualified Types.Common as TC
 
 import Control.Applicative (empty)

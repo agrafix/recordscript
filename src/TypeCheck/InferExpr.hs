@@ -3,6 +3,7 @@
 module TypeCheck.InferExpr where
 
 import TypeCheck.InferLiteral
+import Types.Annotation
 import Types.Ast
 import Types.Common
 import Types.Types
@@ -18,12 +19,6 @@ import qualified Data.Generics as G
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Text as T
-
-data TypedPos
-    = TypedPos
-    { tp_pos :: Pos
-    , tp_type :: Type
-    } deriving (Show, Data, Typeable)
 
 data InferState
     = InferState

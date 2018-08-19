@@ -1,6 +1,7 @@
 {-# LANGUAGE StrictData #-}
 module Desugar.UniqueVars where
 
+import Types.Annotation
 import Types.Ast
 import Types.Common
 

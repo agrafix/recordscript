@@ -9,6 +9,7 @@ import Pretty.Expr
 import Pretty.Literal
 import Pretty.Pattern
 import Pretty.Types
+import Types.Annotation
 import Types.Ast
 import Types.Common
 import Types.Types

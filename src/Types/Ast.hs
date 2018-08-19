@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 module Types.Ast where
 
+import Types.Annotation
 import Types.Common
 
 import Data.Data
