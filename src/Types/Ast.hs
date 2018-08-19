@@ -71,6 +71,18 @@ data RecordAccess a
     , ra_field :: RecordKey
     } deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
+data BinOp a
+    = BoAdd (Expr a) (Expr a)
+    | BoSub (Expr a) (Expr a)
+    | BoMul (Expr a) (Expr a)
+    | BoDiv (Expr a) (Expr a)
+    | BoEq (Expr a) (Expr a)
+    | BoNeq (Expr a) (Expr a)
+    | BoAnd (Expr a) (Expr a)
+    | BoOr (Expr a) (Expr a)
+    | BoNot (Expr a)
+    deriving (Eq, Ord, Show, Generic, Data, Typeable)
+
 data Expr a
     = ELit (A a Literal)
     | EVar (A a Var)
@@ -83,4 +95,5 @@ data Expr a
     | ELambda (WithA a Lambda)
     | EFunApp (WithA a FunApp)
     | ECase (WithA a Case)
+    | EBinOp (WithA a BinOp)
     deriving (Eq, Ord, Show, Generic, Data, Typeable)

@@ -8,6 +8,7 @@ import Types.Common
 
 import Data.List (foldl')
 import Text.Megaparsec hiding (Pos)
+import Text.Megaparsec.Expr
 import qualified Data.HashMap.Strict as HM
 
 list :: Parser [Expr Pos]
@@ -123,17 +124,49 @@ accessLhsExprP =
     try (ERecordMerge <$> posAnnotated mergeP) <|>
     varOnlyExpr
 
+binOpTable :: [[Operator Parser (Expr Pos)]]
+binOpTable =
+    [ [ prefix "!" BoNot ]
+    , [ binary "*" BoMul
+      , binary "/" BoDiv
+      ]
+    , [ binary "+" BoAdd
+      , binary "-" BoSub
+      ]
+    , [ binary "!=" BoNeq
+      , binary "==" BoEq
+      ]
+    , [ binary "&&" BoAnd
+      , binary "||" BoOr
+      ]
+    ]
+    where
+      binary opName f =
+          InfixL $
+          do pos <- myPos
+             _ <- symbol opName
+             pure (\e1 e2 -> EBinOp (Annotated pos (f e1 e2)))
+      prefix opName f =
+          Prefix $
+          do pos <- myPos
+             _ <- symbol opName
+             pure (\e1 -> EBinOp (Annotated pos (f e1)))
+
 exprP :: Parser (Expr Pos)
-exprP =
+exprP = makeExprParser termP binOpTable
+
+termP :: Parser (Expr Pos)
+termP =
     lexemeNl $
     try (ELet <$> posAnnotated letP) <|>
     try (ECase <$> posAnnotated caseP) <|>
     try (EIf <$> posAnnotated ifP) <|>
-    ELit <$> posAnnotated literal <|>
+    try (ELit <$> posAnnotated literal) <|>
     try accessExprP <|>
-    EList <$> posAnnotated list <|>
+    try (EList <$> posAnnotated list) <|>
     try (ERecord <$> posAnnotated (record RpmNormal exprP)) <|>
     try (ERecordMerge <$> posAnnotated mergeP) <|>
     try (ELambda <$> posAnnotated lambdaP) <|>
     try (EFunApp <$> posAnnotated funAppP) <|>
+    try (parens exprP) <|>
     varOnlyExpr

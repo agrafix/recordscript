@@ -52,12 +52,29 @@ runUniquifyPat p =
           fmap (Record . HM.fromList) $ forM (HM.toList hm) $ \(lbl, pat) ->
           (,) <$> pure lbl <*> runUniquifyPat pat
 
+doBinOp :: (UniqueM f, Show a) => BinOp a -> f (BinOp a)
+doBinOp bo =
+    case bo of
+      BoAdd x y -> binOp BoAdd x y
+      BoSub x y -> binOp BoSub x y
+      BoMul x y -> binOp BoMul x y
+      BoDiv x y -> binOp BoDiv x y
+      BoEq x y -> binOp BoEq x y
+      BoNeq x y -> binOp BoNeq x y
+      BoAnd x y -> binOp BoAnd x y
+      BoOr x y -> binOp BoOr x y
+      BoNot x -> BoNot <$> runUniquify x
+    where
+      binOp ty x y = ty <$> runUniquify x <*> runUniquify y
+
 -- todo: can we do scope checking here too?
 runUniquify :: (Show a, UniqueM m) => Expr a -> m (Expr a)
 runUniquify expr =
     case expr of
       ELit _ -> pure expr
       EVar v -> EVar <$> mapMA uniquify v
+      EBinOp bo ->
+          fmap EBinOp $ mapMA doBinOp bo
       EList l ->
           fmap EList $
           flip mapMA l $ \exprList ->

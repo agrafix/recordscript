@@ -46,6 +46,7 @@ data Error
 
 data ErrorMessage
     = ETypeMismatch Type Type
+    | EBinOpTypeMismatch Type [Type]
     | ERecordMergeTypeMismatch Type
     | ERecordAccessTypeMismatch Type RecordKey
     | ERecordAccessUnknown (Record Type) RecordKey
@@ -120,15 +121,16 @@ assignTVar pos var ty =
        let context = is_context s
        case HM.lookup var (ctx_equivMap context) of
          Nothing ->
-             do modifyMap s $ \x -> HM.insert var ty x
+             do modifyMap s $ HM.insert var ty
                 pure ty
          Just currentType ->
              do finalTy <- unifyTypes pos ty currentType
-                modifyMap s $ \x -> HM.insert var finalTy x
+                s' <- get -- TODO: is this correct? don't we need to find a fixpoint here?
+                modifyMap s' $ HM.insert var finalTy
                 pure finalTy
     where
         modifyMap s f =
-            put $
+            put $!
             s
             { is_context =
                 (is_context s)
@@ -223,6 +225,10 @@ unifyTypes pos t1 t2 =
              pure (TApp lhs rhs)
       (TVar x, t) -> assignTVar pos x t
       (t, TVar x) -> assignTVar pos x t
+      (TFun a1 r1, TFun a2 r2) ->
+          do argT <- mapM (\(x, y) -> unifyTypes pos x y) (zip a1 a2)
+             resT <- unifyTypes pos r1 r2
+             pure (TFun argT resT)
       _ -> throwTypeError
     where
       throwTypeError = throwError $ Error pos (ETypeMismatch t1 t2)
@@ -253,6 +259,7 @@ getExprType expr =
       ELambda (Annotated x _) -> tp_type x
       EFunApp (Annotated x _) -> tp_type x
       ECase (Annotated x _) -> tp_type x
+      EBinOp (Annotated x _) -> tp_type x
 
 getRecordType :: Record (Expr TypedPos) -> Record Type
 getRecordType (Record hm) =
@@ -431,6 +438,43 @@ inferCase pos caseStmt =
               pure (patInf, exprInf)
        pure (Case matchOn patternMatches, returnType)
 
+inferBinOp :: InferM m => Pos -> BinOp Pos -> m (BinOp TypedPos, Type)
+inferBinOp pos bo =
+    case bo of
+      BoAdd x y -> binOp BoAdd x y numTypes
+      BoSub x y -> binOp BoSub x y numTypes
+      BoMul x y -> binOp BoMul x y numTypes
+      BoDiv x y -> binOp BoDiv x y numTypes
+      BoAnd x y -> binOp BoAnd x y boolTypes
+      BoOr x y -> binOp BoOr x y boolTypes
+      BoNot x ->
+          do lhsE <- inferExpr x
+             returnType <- unifyTypes pos (getExprType lhsE) N.tBool
+             pure (BoNot lhsE, returnType)
+      BoEq x y -> binOpReq BoEq x y N.tBool
+      BoNeq x y -> binOpReq BoNeq x y N.tBool
+    where
+        numTypes = Just [N.tInt, N.tFloat]
+        boolTypes = Just [N.tBool]
+        binOpReq pack lhs rhs forcedType =
+            do lhsE <- inferExpr lhs
+               rhsE <- inferExpr rhs
+               _ <-
+                   unifyTypes pos (getExprType lhsE) (getExprType rhsE)
+               pure (pack lhsE rhsE, forcedType)
+        binOp pack lhs rhs allowedTypes =
+            do lhsE <- inferExpr lhs
+               rhsE <- inferExpr rhs
+               returnType <-
+                   unifyTypes pos (getExprType lhsE) (getExprType rhsE)
+                   >>= resolvedType
+               case allowedTypes of
+                 Just at ->
+                     unless (returnType `elem` at) $
+                     throwError $ Error pos (EBinOpTypeMismatch returnType at)
+                 Nothing -> pure ()
+               pure (pack lhsE rhsE, returnType)
+
 inferExpr :: InferM m => Expr Pos -> m (Expr TypedPos)
 inferExpr expr =
     case expr of
@@ -469,3 +513,6 @@ inferExpr expr =
       ECase (Annotated p caseStmt) ->
           do (caseTyped, caseType) <- inferCase p caseStmt
              pure $ ECase (Annotated (TypedPos p caseType) caseTyped)
+      EBinOp (Annotated p binOp) ->
+          do (binOpTyped, binOpType) <- inferBinOp p binOp
+             pure $ EBinOp (Annotated (TypedPos p binOpType) binOpTyped)

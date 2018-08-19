@@ -23,6 +23,7 @@ prettyExpr e =
       ELambda (Annotated _ eLambda) -> prettyLambda eLambda
       EFunApp (Annotated _ eFunApp) -> prettyFunApp eFunApp
       ECase (Annotated _ eCase) -> prettyCase eCase
+      EBinOp (Annotated _ eBinOp) -> prettyBinOp eBinOp
 
 prettyIf :: If a -> T.Text
 prettyIf i =
@@ -79,3 +80,18 @@ prettyMerge rm =
 prettyAccess :: RecordAccess a -> T.Text
 prettyAccess ra =
     prettyExpr (ra_record ra) <> "." <> unRecordKey (ra_field ra)
+
+prettyBinOp :: BinOp a -> T.Text
+prettyBinOp bo =
+    case bo of
+      BoAdd x y -> binOp "+" x y
+      BoSub x y -> binOp "-" x y
+      BoMul x y -> binOp "*" x y
+      BoDiv x y -> binOp "/" x y
+      BoEq x y -> binOp "==" x y
+      BoNeq x y -> binOp "!=" x y
+      BoAnd x y -> binOp "&&" x y
+      BoOr x y -> binOp "||" x y
+      BoNot x -> "!" <> prettyExpr x
+    where
+      binOp ty x y = "(" <> prettyExpr x <> " " <> ty <> " " <> prettyExpr y <> ")"

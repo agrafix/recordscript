@@ -4,6 +4,8 @@ import Parser.Expr
 import Parser.Shared
 import Pretty.Types
 import TypeCheck.InferExpr
+import Types.Ast
+import Types.Types
 
 import Control.Monad
 import Data.Bifunctor
@@ -15,6 +17,7 @@ import System.FilePath
 import Test.Hspec
 import Text.Megaparsec (eof)
 import Text.Megaparsec.Error
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
@@ -43,6 +46,18 @@ makeParserTests =
                     Left _ -> False
                     Right _ -> True
 
+formatInferState :: InferState -> T.Text
+formatInferState is =
+    "Var types: \n"
+    <> (T.intercalate "\n" $ map mkEntry $ HM.toList $ ctx_varTypes $ is_context is)
+    <> "\n Equiv map: \n"
+    <> (T.intercalate "\n" $ map mkEquivEntry $ HM.toList $ ctx_equivMap $ is_context is)
+    where
+      mkEquivEntry (TypeVar x, ty) =
+          x <> " --> " <> prettyType ty
+      mkEntry (Var x, ty) =
+          x <> " --> " <> prettyType ty
+
 makeTypeCheckerTests :: SpecWith ()
 makeTypeCheckerTests =
     do testCandidates <-
@@ -57,11 +72,20 @@ makeTypeCheckerTests =
               let parseResult =
                       first parseErrorPretty $
                       executeParser inFile (exprP <* eof) content
-                  typeCheckResult =
-                      second formatType . first show . runIdentity . runInferM . inferExpr
+                  typeCheckResult = first show . runIdentity . runInferM . inferExpr
                   formatType (expr, inferState) =
                       prettyType $ getExprType $ resolvePass expr inferState
-              (parseResult >>= typeCheckResult) `shouldBe` Right expectedTypeString
+              case parseResult >>= typeCheckResult of
+                Right v | formatType v == expectedTypeString -> pure ()
+                Right otherType@(_, inferState) ->
+                    expectationFailure $ T.unpack $
+                    "Expression returned wrong type. \n Expected: \n"
+                    <> expectedTypeString <> "\n Got: \n"
+                    <> formatType otherType <> "\n Internal state: \n"
+                    <> formatInferState inferState
+                Left errMsg ->
+                    expectationFailure $
+                    "Failed to typecheck. Error: " <> errMsg
 
 main :: IO ()
 main =
