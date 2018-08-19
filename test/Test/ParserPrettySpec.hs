@@ -13,7 +13,9 @@ import Types.Ast
 import Types.Common
 import Types.Types
 
+import Control.Monad
 import Data.Bifunctor
+import Data.Monoid
 import Test.Hspec
 import Text.Megaparsec (eof)
 import Text.Megaparsec.Error
@@ -132,7 +134,13 @@ exprSpec =
        it "works for lambda" $ go someLambda
        it "works for fun app" $ go someFunApp
        it "works for case" $ go someCase
+       forM_ (zip binOps [1..]) $ \(bo, idx :: Int) ->
+           it ("works for binop " <> show idx) $ go $ someBinOp bo
+       it "works for not bin op" $ go someNotBinOp
+       it "works for nested bin ops" $ go someNestedBinOp
     where
+        binOps =
+            [BoAdd, BoSub, BoMul, BoDiv, BoEq, BoNeq, BoAnd, BoOr]
         someLit = ELit $ fakeA (LString "asd")
         someVar = EVar $ fakeA (Var "x")
         someList = EList $ fakeA [someLit, someVar]
@@ -184,6 +192,12 @@ exprSpec =
             { ra_record = someRecordAccess
             , ra_field = RecordKey "bar"
             }
+        someBinOp pk =
+            EBinOp $ fakeA $ pk someVar someLit
+        someNotBinOp =
+            EBinOp $ fakeA $ BoNot someFunApp
+        someNestedBinOp =
+            EBinOp $ fakeA $ BoAdd (someBinOp BoMul) (someBinOp BoSub)
         dummyPos = Pos "x" Nothing Nothing
         clobberA :: Expr Pos -> Expr Pos
         clobberA e =
