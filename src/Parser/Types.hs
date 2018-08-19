@@ -11,26 +11,31 @@ typeP :: Parser Type
 typeP =
     try (uncurry TFun <$> funP) <|>
     try (uncurry TApp <$> tappP) <|>
-    simpleTypeP
-
-conOrVarP :: Parser Type
-conOrVarP =
-    TCon . TypeConstructor <$> tyConName <|>
-    TVar . TypeVar <$> name
-
-simpleTypeP :: Parser Type
-simpleTypeP =
-    conOrVarP <|>
+    (rewrapEither TCon TVar <$> conOrVarP) <|>
     TRec <$> recP
+
+rewrapEither :: (a -> x) -> (b -> x) -> Either a b -> x
+rewrapEither l r opts =
+    case opts of
+      Left x -> l x
+      Right y -> r y
+
+conOrVarP :: Parser (Either TypeConstructor TypeVar)
+conOrVarP =
+    Left . TypeConstructor <$> tyConName <|>
+    Right . TypeVar <$> name
 
 recP :: Parser RecordType
 recP =
     try (RClosed <$> record RpmStrict typeP) <|>
     ROpen <$> record RpmNormal typeP
 
-tappP :: Parser (Type, Type)
+tappP :: Parser (TypeAppReceiver, [Type])
 tappP =
-    (,) <$> simpleTypeP <*> angles typeP
+    (,) <$> (rewrapEither TyarCon TyarVar <$> conOrVarP) <*> angles appBody
+    where
+      appBody =
+          sepBy1 typeP (symbol ",")
 
 funP :: Parser ([Type], Type)
 funP =

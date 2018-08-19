@@ -19,8 +19,26 @@ newtype TypeConstructor
     = TypeConstructor { unTypeConstructor :: T.Text }
     deriving (Eq, Ord, Show, Generic, Data, Typeable, Hashable)
 
+data TypeAppReceiver
+    = TyarVar TypeVar
+    | TyarCon TypeConstructor
+    deriving (Eq, Ord, Show, Generic, Data, Typeable)
+
+receiverToType :: TypeAppReceiver -> Type
+receiverToType tar =
+    case tar of
+      TyarVar x -> TVar x
+      TyarCon c -> TCon c
+
+typeToReceiver :: Type -> Either Type TypeAppReceiver
+typeToReceiver ty =
+    case ty of
+      TVar x -> Right (TyarVar x)
+      TCon c -> Right (TyarCon c)
+      _ -> Left ty
+
 data Type
-    = TApp Type Type
+    = TApp TypeAppReceiver [Type]
     -- ^ Type application
     | TVar TypeVar
     -- ^ Type variable

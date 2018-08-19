@@ -41,6 +41,7 @@ data Error
 
 data ErrorMessage
     = ETypeMismatch Type Type
+    | EBadRecvType Type
     | EBinOpTypeMismatch Type [Type]
     | ERecordMergeTypeMismatch Type
     | ERecordAccessTypeMismatch Type RecordKey
@@ -52,7 +53,7 @@ type InferM m = (MonadError Error m, MonadState InferState m)
 resolveTypeVars :: Type -> HM.HashMap TypeVar Type -> Type
 resolveTypeVars t mp =
     case t of
-      TApp x y -> TApp (resolveTypeVars x mp) (resolveTypeVars y mp)
+      TApp x y -> TApp (handleContructor x) (fmap (flip resolveTypeVars mp) y)
       TVar v -> traceTypeVar v mp
       TCon x -> TCon x
       TRec rt ->
@@ -63,6 +64,17 @@ resolveTypeVars t mp =
       TFun args result ->
           TFun (fmap (flip resolveTypeVars mp) args) (resolveTypeVars result mp)
     where
+      handleContructor x =
+          case x of
+            TyarVar tv ->
+                case typeToReceiver (traceTypeVar tv mp) of
+                  Right goodRecv -> goodRecv
+                  Left badType ->
+                      -- TODO: nicer error handling here I assume...
+                      error $
+                      "Received bad value for type variable in contructor receiver position. "
+                      ++ " Got: " ++ show badType
+            TyarCon _ -> x
       handleRecord (Record hm) =
           Record $ HM.map (flip resolveTypeVars mp) hm
 
@@ -215,9 +227,15 @@ unifyTypes pos t1 t2 =
           else throwTypeError
       (TRec r1, TRec r2) -> TRec <$> unifyRecord pos r1 r2
       (TApp a1 a2, TApp b1 b2) ->
-          do lhs <- unifyTypes pos a1 b1
-             rhs <- unifyTypes pos a2 b2
-             pure (TApp lhs rhs)
+          do lhs <-
+                 typeToReceiver <$> unifyTypes pos (receiverToType a1) (receiverToType b1)
+             rhs <-
+                 mapM (uncurry (unifyTypes pos)) $ zip a2 b2
+             lhsTypeRecv <-
+                 case lhs of
+                   Right recv -> pure recv
+                   Left badType -> throwError $ Error pos (EBadRecvType badType)
+             pure (TApp lhsTypeRecv rhs)
       (TVar x, t) -> assignTVar pos x t
       (t, TVar x) -> assignTVar pos x t
       (TFun a1 r1, TFun a2 r2) ->

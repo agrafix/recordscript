@@ -72,9 +72,14 @@ typeSpec =
        it "works for type constructors" $
            go (TCon (TypeConstructor "Unit"))
        it "works for type application" $
-           let arg1 = TCon (TypeConstructor "List")
+           let arg1 = TyarCon (TypeConstructor "List")
                arg2 = TVar (TypeVar "a")
-           in go (TApp arg1 arg2)
+           in go (TApp arg1 [arg2])
+       it "works for type application with multiple args" $
+           let arg1 = TyarCon (TypeConstructor "List")
+               arg2 = TVar (TypeVar "a")
+               arg3 = TCon (TypeConstructor "String")
+           in go (TApp arg1 [arg2, arg3])
        it "works for open record types" $
            go $ TRec $ ROpen $ Record $
            HM.fromList [(RecordKey "foo", TVar (TypeVar "a"))]

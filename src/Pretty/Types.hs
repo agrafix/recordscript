@@ -7,10 +7,16 @@ import Data.Monoid
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
+prettyTypeAppRecv :: TypeAppReceiver -> T.Text
+prettyTypeAppRecv tar =
+    case tar of
+      TyarVar (TypeVar x) -> x
+      TyarCon (TypeConstructor x) -> x
+
 prettyType :: Type -> T.Text
 prettyType t =
     case t of
-      TApp x y -> prettyType x <> "<" <> prettyType y <> ">"
+      TApp x y -> prettyTypeAppRecv x <> "<" <> T.intercalate "," (map prettyType y) <> ">"
       TVar (TypeVar x) -> x
       TCon (TypeConstructor x) -> x
       TRec r -> prettyRecord r

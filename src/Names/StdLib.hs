@@ -18,4 +18,4 @@ tBool :: Type
 tBool = TCon (TypeConstructor "Bool")
 
 tList :: Type -> Type
-tList = TApp (TCon (TypeConstructor "List"))
+tList x = TApp (TyarCon (TypeConstructor "List")) [x]
