@@ -27,8 +27,8 @@ data InferState
     , is_tvarSupply :: Int
     } deriving (Show)
 
-data Context =
-    Context
+data Context
+    = Context
     { ctx_varTypes :: HM.HashMap Var Type
     , ctx_equivMap :: HM.HashMap TypeVar Type
     } deriving (Show)
