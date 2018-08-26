@@ -71,10 +71,14 @@ prettyFunApp fApp =
 prettyMerge :: RecordMerge a -> T.Text
 prettyMerge rm =
     "{ \n"
-    <> "..." <> prettyExpr (rm_target rm) <> ", \n"
+    <> "..." <> noCopy <> prettyExpr (rm_target rm) <> ", \n"
     <> T.intercalate ", \n" (map handleE (rm_mergeIn rm))
     <> "}"
     where
+      noCopy =
+          if rm_noCopy rm
+          then "~"
+          else ""
       handleE e =
           "..." <> prettyExpr e
 

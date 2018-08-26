@@ -298,6 +298,7 @@ inferMerge pos recMerge =
                RecordMerge
                { rm_target = targetTyped
                , rm_mergeIn = sourcesTyped
+               , rm_noCopy = rm_noCopy recMerge
                }
            mergeType =
                TRec $ RClosed $ Record mergedTypeMap

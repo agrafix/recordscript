@@ -8,6 +8,7 @@ import Types.Ast
 import Types.Common
 
 import Data.List (foldl')
+import Data.Maybe
 import Text.Megaparsec hiding (Pos)
 import Text.Megaparsec.Expr
 import qualified Data.HashMap.Strict as HM
@@ -78,11 +79,12 @@ mergeP :: Parser (RecordMerge Pos)
 mergeP =
     braces $
     do _ <- symbol "..."
+       noCopy <- isJust <$> optional (symbol "~")
        targetE <- exprP
        _ <- symbol ","
        sourcesE <-
            try simpleP <|> complexP
-       pure (RecordMerge targetE sourcesE)
+       pure (RecordMerge targetE sourcesE noCopy)
     where
         simpleP =
             do pos <- myPos

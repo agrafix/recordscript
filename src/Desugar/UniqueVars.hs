@@ -90,6 +90,7 @@ runUniquify expr =
           RecordMerge
           <$> runUniquify (rm_target recMerge)
           <*> mapM runUniquify (rm_mergeIn recMerge)
+          <*> pure (rm_noCopy recMerge)
       ERecordAccess r ->
           fmap ERecordAccess $
           flip mapMA r $ \recAccess ->

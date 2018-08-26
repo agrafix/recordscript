@@ -132,7 +132,8 @@ exprSpec =
        it "works for lists" $ go someList
        it "works for nested lists" $ go someNestedList
        it "works for records" $ go someRecord
-       it "works for record merge" $ go someMerge
+       it "works for record merge that disallows copy" $ go (someMerge True)
+       it "works for record merge" $ go (someMerge False)
        it "works for simple record access" $ go someRecordAccess
        it "works for nested record access" $ go someRecordAccessNested
        it "works for if" $ go someIf
@@ -183,10 +184,11 @@ exprSpec =
                     , (PVar $ fakeA (Var "y"), someRecord)
                     ]
             }
-        someMerge =
+        someMerge noCopy =
             ERecordMerge $ fakeA RecordMerge
             { rm_target = someVar
             , rm_mergeIn = [someVar, someRecord]
+            , rm_noCopy = noCopy
             }
         someRecordAccess =
             ERecordAccess $ fakeA RecordAccess

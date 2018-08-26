@@ -64,6 +64,7 @@ data RecordMerge a
     = RecordMerge
     { rm_target :: Expr a
     , rm_mergeIn :: [Expr a]
+    , rm_noCopy :: Bool
     } deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
 data RecordAccess a

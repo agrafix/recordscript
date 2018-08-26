@@ -35,4 +35,4 @@ data TypedPos
     = TypedPos
     { tp_pos :: Pos
     , tp_type :: Type
-    } deriving (Show, Data, Typeable)
+    } deriving (Eq, Ord, Show, Generic, Data, Typeable)
