@@ -20,6 +20,7 @@ ghc-options: -Wall -Werror
 dependencies:
   - base >= 4.7 && < 5
   - text
+  - containers
   - unordered-containers
   - hashable
   - mtl

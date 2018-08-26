@@ -66,3 +66,4 @@ main =
     do describe "Parser" makeParserTests
        describe "Parser <-> Pretty roundTrip" parserPrettySpec
        describe "Type checker" makeTypeCheckerTests
+       describe "Write target" makeWriteTargetTests
