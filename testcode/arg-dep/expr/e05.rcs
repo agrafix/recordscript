@@ -1,0 +1,4 @@
+(foo, bar, baz) => {
+    let x = baz.bim;
+    x.foo
+}

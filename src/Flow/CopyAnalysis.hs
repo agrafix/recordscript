@@ -76,8 +76,20 @@ findWriteTarget expr pathTraversed =
           -- TODO: this is tricky, here we need to know how the result
           -- related to it's arguments first.
           error "IMPLEMENT ME" rcvE args
-      ELet (Annotated _ (Let _ _ inE)) ->
-          findWriteTarget inE pathTraversed
+      ELet (Annotated _ (Let (Annotated _ var) bindE inE)) ->
+          -- TODO: This is probably only partially correct :sadpanda:
+          case findWriteTarget inE pathTraversed of
+            WtVar v | v == var ->
+              findWriteTarget bindE pathTraversed
+            WtRecordKey v recordPath | v == var ->
+              case findWriteTarget bindE pathTraversed of
+                WtVar v2
+                    | null recordPath -> WtVar v2
+                    | otherwise -> WtRecordKey v2 recordPath
+                WtRecordKey v2 rp2 -> WtRecordKey v2 (rp2 <> recordPath)
+                x -> x
+            WtMany _ -> error "IMPLEMENT ME"
+            x -> x
 
 -- | Given a lambda, infer which arguments
 -- would need to be considered written if the result is written
