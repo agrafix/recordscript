@@ -1,0 +1,12 @@
+(a, foo, bar, baz, blip) => {
+    let z = case (a) {
+      1 -> baz.one;
+      2 -> blip.two;
+    };
+    let x = if (foo) {
+        z.da
+    } else {
+        bar.plop
+    };
+    x.bim
+}
