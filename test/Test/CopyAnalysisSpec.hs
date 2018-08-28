@@ -6,6 +6,7 @@ import Test.Helpers
 import Parser.Expr
 import Parser.Shared
 import TypeCheck.InferExpr
+import Types.Annotation
 import Types.Ast
 import Types.Common
 
@@ -27,14 +28,14 @@ prettyWriteTarget wt =
       WtMany many -> "(" <> T.intercalate "|" (fmap prettyWriteTarget many) <> ")"
       WtNone -> "~"
 
-makeWriteTargetTests :: SpecWith ()
-makeWriteTargetTests =
+withTcExpr :: String -> FilePath -> ((T.Text, Expr TypedPos) -> IO ()) -> SpecWith ()
+withTcExpr what dir go =
     do testCandidates <-
-           runIO $ getDirectoryFilePairs "testcode/write-target/expr" ".rcs" ".txt"
+           runIO $ getDirectoryFilePairs dir ".rcs" ".txt"
        forM_ testCandidates $ \(inFile, outFile) ->
-           it ("Correctly finds write target for " ++ inFile) $
+           it ("Correctly finds " ++ what ++ " for " ++ inFile) $
            do content <- T.readFile inFile
-              expectedWriteTarget <-
+              expected <-
                   case outFile of
                     Nothing -> fail ("Missing out file for " <> show inFile)
                     Just ok -> T.strip <$> T.readFile ok
@@ -43,9 +44,33 @@ makeWriteTargetTests =
                       executeParser inFile (exprP <* eof) content
                   typeCheckResult = first show . runIdentity . runInferM . inferExpr
               case parseResult >>= typeCheckResult of
-                Right (typedExpr, _) ->
-                    (prettyWriteTarget $ findWriteTarget typedExpr []) `shouldBe`
-                    expectedWriteTarget
+                Right (typedExpr, _) -> go (expected, typedExpr)
                 Left errMsg ->
                     expectationFailure $
                     "Failed to typecheck. Error: " <> errMsg
+
+makeWriteTargetTests :: SpecWith ()
+makeWriteTargetTests =
+    withTcExpr "write target" "testcode/write-target/expr" $ \(expectedWriteTarget, typedExpr) ->
+    (prettyWriteTarget $ findWriteTarget typedExpr []) `shouldBe`
+    expectedWriteTarget
+
+prettyArgDep :: [(Var, [RecordKey])] -> T.Text
+prettyArgDep x =
+    T.intercalate "\n" $ flip fmap x $ \(Var v, path) ->
+    let renderedPath =
+            if null path
+            then ""
+            else "." <> T.intercalate "." (fmap unRecordKey path)
+    in "- " <> v <> renderedPath
+
+
+makeArgDepTests :: SpecWith ()
+makeArgDepTests =
+    withTcExpr "write target" "testcode/arg-dep/expr" $ \(expected, typedExpr) ->
+    case typedExpr of
+      ELambda (Annotated _ l) ->
+          prettyArgDep (argumentDependency l) `shouldBe` expected
+      _ ->
+          expectationFailure $
+          "Bad expression: " <> show typedExpr

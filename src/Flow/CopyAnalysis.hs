@@ -16,6 +16,7 @@ import GHC.Generics
 import qualified Data.Foldable as F
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Sequence as Seq
+import qualified Data.Set as S
 
 data CopyState
     = CoppyState
@@ -78,6 +79,23 @@ findWriteTarget expr pathTraversed =
       ELet (Annotated _ (Let _ _ inE)) ->
           findWriteTarget inE pathTraversed
 
+-- | Given a lambda, infer which arguments
+-- would need to be considered written if the result is written
+-- TODO: what about aliasing?
+argumentDependency :: Lambda a -> [(Var, [RecordKey])]
+argumentDependency (Lambda args body) =
+    handleTarget $ findWriteTarget body []
+    where
+      relevantVars = S.fromList $ fmap a_value args
+      handleTarget wt =
+          case wt of
+            WtNone -> []
+            WtMany x ->
+                concatMap handleTarget x
+            WtVar x ->
+                if x `S.member` relevantVars then [(x, [])] else []
+            WtRecordKey x rks ->
+                if x `S.member` relevantVars then [(x, rks)] else []
 
 data Effect
     = EWritten Var

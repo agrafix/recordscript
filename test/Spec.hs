@@ -67,3 +67,4 @@ main =
        describe "Parser <-> Pretty roundTrip" parserPrettySpec
        describe "Type checker" makeTypeCheckerTests
        describe "Write target" makeWriteTargetTests
+       describe "Arg dependency" makeArgDepTests
