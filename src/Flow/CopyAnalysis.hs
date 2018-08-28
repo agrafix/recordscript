@@ -10,9 +10,8 @@ import Types.CopyKinds
 import Control.Monad.Except
 import Control.Monad.State
 import Data.Data
---import Data.List (foldl')
+import Data.List (foldl')
 import Data.Monoid
-import Debug.Trace
 import GHC.Generics
 import qualified Data.Foldable as F
 import qualified Data.HashMap.Strict as HM
@@ -44,36 +43,52 @@ data ErrorMessage
 
 type CopyM m = (MonadError Error m, MonadState CopyState m)
 
--- TODO: i don't think that WtMany should allow nesting.
-data WriteTarget
-    = WtVar Var
-    | WtRecordKey Var [RecordKey]
-    | WtMany [WriteTarget]
-    | WtNone
+data PrimitiveWriteTarget
+    = PwtVar Var [RecordKey]
+    | PwtNone
     deriving (Show, Eq)
 
-findWriteTarget :: Expr a -> [RecordKey] -> WriteTarget
+data WriteTarget
+    = WtPrim PrimitiveWriteTarget
+    | WtMany [PrimitiveWriteTarget]
+    deriving (Show, Eq)
+
+packMany :: [WriteTarget] -> WriteTarget
+packMany wts =
+    case wts of
+      [] -> WtMany []
+      [x] -> x
+      many ->
+          let merged = foldl' merge mempty many
+          in case merged of
+              [x] -> WtPrim x
+              xs -> WtMany xs
+    where
+      merge accum wtgt =
+          case wtgt of
+            WtPrim PwtNone -> accum
+            WtPrim pwt -> accum <> [pwt]
+            WtMany pwts -> accum <> pwts
+
+findWriteTarget :: forall a. Expr a -> [RecordKey] -> WriteTarget
 findWriteTarget expr pathTraversed =
     case expr of
-      ELit _ -> WtNone -- ill typed
-      EList _ -> WtNone -- ill typed
-      EBinOp _ -> WtNone -- ill typed
-      ELambda _ -> WtNone -- ill typed
-      ERecord _ -> WtNone -- don't care
-      EVar (Annotated _ var) ->
-          if null pathTraversed
-          then WtVar var -- trivial
-          else WtRecordKey var pathTraversed
+      ELit _ -> WtPrim PwtNone -- ill typed
+      EList _ -> WtPrim PwtNone -- ill typed
+      EBinOp _ -> WtPrim PwtNone -- ill typed
+      ELambda _ -> WtPrim PwtNone -- ill typed
+      ERecord _ -> WtPrim PwtNone -- don't care
+      EVar (Annotated _ var) -> WtPrim (PwtVar var pathTraversed) -- trivial
       ERecordMerge (Annotated _ (RecordMerge tgt _ _)) ->
           findWriteTarget tgt pathTraversed
       ERecordAccess (Annotated _ (RecordAccess r rk)) ->
           findWriteTarget r (pathTraversed ++ [rk])
       EIf (Annotated _ (If bodies elseExpr)) ->
           let exprs = fmap snd bodies ++ [elseExpr]
-          in WtMany $ fmap (flip findWriteTarget pathTraversed) exprs
+          in packMany $ fmap (flip findWriteTarget pathTraversed) exprs
       ECase (Annotated _ (Case _ cases)) ->
           let exprs = fmap snd cases
-          in WtMany $ fmap (flip findWriteTarget pathTraversed) exprs
+          in packMany $ fmap (flip findWriteTarget pathTraversed) exprs
       EFunApp (Annotated _ (FunApp rcvE args)) ->
           -- TODO: this is tricky, here we need to know how the result
           -- related to it's arguments first.
@@ -82,24 +97,20 @@ findWriteTarget expr pathTraversed =
           -- TODO: This is probably only partially correct :sadpanda:
           handleLetTarget var bindE [] $ findWriteTarget inE pathTraversed
     where
+      handleLetTarget :: Var -> Expr a -> [RecordKey] -> WriteTarget -> WriteTarget
       handleLetTarget var bindE pExtra wtarget =
-          case trace ("Var: " ++ show var ++ " Input:" ++ show wtarget) wtarget of
-            WtVar v | v == var ->
-              findWriteTarget bindE pathTraversed
-            WtRecordKey v recordPath | v == var ->
+          case wtarget of
+            WtPrim (PwtVar v recordPath) | v == var ->
               case findWriteTarget bindE pathTraversed of
-                WtVar v2
-                    | null recordPath -> WtVar v2
-                    | otherwise -> WtRecordKey v2 recordPath
-                WtRecordKey v2 rp2 -> WtRecordKey v2 (rp2 <> recordPath)
+                WtPrim (PwtVar v2 rp2) ->
+                    WtPrim (PwtVar v2 (rp2 <> recordPath))
                 WtMany wTargets ->
-                    trace ("PATH: " <> show recordPath) $
-                    WtMany (fmap (handleLetTarget var bindE recordPath) wTargets)
-                x -> trace ("Useless2: " ++ show x) x
+                    packMany (fmap (handleLetTarget var bindE recordPath . WtPrim) wTargets)
+                x -> x
+            WtPrim (PwtVar v rp) -> WtPrim (PwtVar v (rp <> pExtra))
+            WtPrim PwtNone -> WtPrim PwtNone
             WtMany wTargets ->
-                trace (show (var, wTargets)) $
-                WtMany $ fmap (handleLetTarget var bindE pExtra) wTargets
-            x -> trace ("Useless: " ++ show x) x
+                packMany $ fmap (handleLetTarget var bindE pExtra . WtPrim) wTargets
 
 -- | Given a lambda, infer which arguments
 -- would need to be considered written if the result is written
@@ -111,13 +122,11 @@ argumentDependency (Lambda args body) =
       relevantVars = S.fromList $ fmap a_value args
       handleTarget wt =
           case wt of
-            WtNone -> []
             WtMany x ->
-                concatMap handleTarget x
-            WtVar x ->
-                if x `S.member` relevantVars then [(x, [])] else []
-            WtRecordKey x rks ->
+                concatMap (handleTarget . WtPrim) x
+            WtPrim (PwtVar x rks) ->
                 if x `S.member` relevantVars then [(x, rks)] else []
+            WtPrim PwtNone -> []
 
 data Effect
     = EWritten Var

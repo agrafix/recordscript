@@ -23,10 +23,12 @@ import qualified Data.Text.IO as T
 prettyWriteTarget :: WriteTarget -> T.Text
 prettyWriteTarget wt =
     case wt of
-      WtVar (Var x) -> x
-      WtRecordKey (Var x) path -> x <> "." <> T.intercalate "." (fmap unRecordKey path)
-      WtMany many -> "(" <> T.intercalate "|" (fmap prettyWriteTarget many) <> ")"
-      WtNone -> "~"
+      WtPrim PwtNone -> "~"
+      WtPrim (PwtVar (Var x) path)
+          | null path -> x
+          | otherwise -> x <> "." <> T.intercalate "." (fmap unRecordKey path)
+      WtMany many ->
+          "(" <> T.intercalate "|" (fmap (prettyWriteTarget . WtPrim) many) <> ")"
 
 withTcExpr :: String -> FilePath -> ((T.Text, Expr TypedPos) -> IO ()) -> SpecWith ()
 withTcExpr what dir go =
