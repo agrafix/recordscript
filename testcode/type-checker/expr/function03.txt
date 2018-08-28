@@ -1,0 +1,1 @@
+({x: @internal1}) => @internal1

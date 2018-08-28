@@ -311,7 +311,11 @@ inferMerge pos recMerge =
             case resTy of
               TRec (ROpen r) -> handle r typeMap
               TRec (RClosed r) -> handle r typeMap
-              t -> throwError $ Error pos (ERecordMergeTypeMismatch t)
+              t ->
+                  -- TODO: is this merge correct here?
+                  do let targetUnify = Record mempty
+                     _ <- unifyTypes pos t (TRec $ ROpen targetUnify)
+                     handle targetUnify typeMap
 
         handle :: Record Type -> MergeMapTypes -> m MergeMapTypes
         handle (Record rt) mmt =
@@ -330,11 +334,18 @@ inferAccess :: InferM m => Pos -> RecordAccess Pos -> m (RecordAccess TypedPos, 
 inferAccess pos recAccess =
     do recordTyped <- inferExpr (ra_record recAccess)
        resTy <- resolvedType (getExprType recordTyped)
+       -- TODO: this is not correct, we should do some unification here
+       -- and try to merge in the key we are looking for.
        exprType <-
            case resTy of
              TRec (ROpen r) -> handle r
              TRec (RClosed r) -> handle r
-             t -> throwError $ Error pos (ERecordAccessTypeMismatch t fld)
+             t ->
+                 do newVar <- TVar <$> freshTypeVar
+                    let targetUnify =
+                            TRec $ ROpen $ Record $ HM.fromList [(fld, newVar)]
+                    _ <- unifyTypes pos t targetUnify
+                    pure newVar
        pure (RecordAccess recordTyped fld, exprType)
     where
         fld = ra_field recAccess
