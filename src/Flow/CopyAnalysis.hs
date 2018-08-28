@@ -12,6 +12,7 @@ import Control.Monad.State
 import Data.Data
 --import Data.List (foldl')
 import Data.Monoid
+import Debug.Trace
 import GHC.Generics
 import qualified Data.Foldable as F
 import qualified Data.HashMap.Strict as HM
@@ -43,6 +44,7 @@ data ErrorMessage
 
 type CopyM m = (MonadError Error m, MonadState CopyState m)
 
+-- TODO: i don't think that WtMany should allow nesting.
 data WriteTarget
     = WtVar Var
     | WtRecordKey Var [RecordKey]
@@ -75,10 +77,13 @@ findWriteTarget expr pathTraversed =
       EFunApp (Annotated _ (FunApp rcvE args)) ->
           -- TODO: this is tricky, here we need to know how the result
           -- related to it's arguments first.
-          error "IMPLEMENT ME" rcvE args
+          error "IMPLEMENT ME 2" rcvE args
       ELet (Annotated _ (Let (Annotated _ var) bindE inE)) ->
           -- TODO: This is probably only partially correct :sadpanda:
-          case findWriteTarget inE pathTraversed of
+          handleLetTarget var bindE [] $ findWriteTarget inE pathTraversed
+    where
+      handleLetTarget var bindE pExtra wtarget =
+          case trace ("Var: " ++ show var ++ " Input:" ++ show wtarget) wtarget of
             WtVar v | v == var ->
               findWriteTarget bindE pathTraversed
             WtRecordKey v recordPath | v == var ->
@@ -87,9 +92,14 @@ findWriteTarget expr pathTraversed =
                     | null recordPath -> WtVar v2
                     | otherwise -> WtRecordKey v2 recordPath
                 WtRecordKey v2 rp2 -> WtRecordKey v2 (rp2 <> recordPath)
-                x -> x
-            WtMany _ -> error "IMPLEMENT ME"
-            x -> x
+                WtMany wTargets ->
+                    trace ("PATH: " <> show recordPath) $
+                    WtMany (fmap (handleLetTarget var bindE recordPath) wTargets)
+                x -> trace ("Useless2: " ++ show x) x
+            WtMany wTargets ->
+                trace (show (var, wTargets)) $
+                WtMany $ fmap (handleLetTarget var bindE pExtra) wTargets
+            x -> trace ("Useless: " ++ show x) x
 
 -- | Given a lambda, infer which arguments
 -- would need to be considered written if the result is written

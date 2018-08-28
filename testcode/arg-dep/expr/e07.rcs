@@ -1,0 +1,9 @@
+(foo, bar, baz) => {
+    let z = baz.ba;
+    let x = if (foo) {
+        z.da
+    } else {
+        bar.plop
+    };
+    x.bim
+}
