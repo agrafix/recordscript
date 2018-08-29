@@ -18,6 +18,8 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Sequence as Seq
 import qualified Data.Set as S
 
+import Debug.Trace
+
 data CopyState
     = CoppyState
     { is_context :: Context
@@ -120,9 +122,7 @@ funWriteThrough funType args funInfo =
       makeTarget mArgTy arg =
           case mArgTy of
             Nothing -> WtPrim PwtNone
-            Just (_, keys) ->
-                -- TODO: fix me this is wrong
-                findWriteTarget arg keys funInfo
+            Just (_, keys) -> findWriteTarget arg keys funInfo
 
 findWriteTarget :: forall a. Show a => Expr a -> [RecordKey] -> FunInfo -> WriteTarget
 findWriteTarget expr pathTraversed funInfo =
@@ -130,7 +130,11 @@ findWriteTarget expr pathTraversed funInfo =
       ELit _ -> WtPrim PwtNone -- ill typed
       EList _ -> WtPrim PwtNone -- ill typed
       EBinOp _ -> WtPrim PwtNone -- ill typed
-      ELambda _ -> WtPrim PwtNone -- ill typed
+      ELambda (Annotated _ (Lambda _ body)) ->
+          -- TODO: is this correct? Probably need to remove the targets
+          -- that the arguments already handle.
+          trace ("Checking lambda") $
+          findWriteTarget body pathTraversed funInfo
       ERecord _ -> WtPrim PwtNone -- don't care
       EVar (Annotated _ var) -> WtPrim (PwtVar var pathTraversed) -- trivial
       ERecordMerge (Annotated _ (RecordMerge tgt _ _)) ->
@@ -154,8 +158,15 @@ findWriteTarget expr pathTraversed funInfo =
                     Nothing -> funInfo
                     Just fi ->
                         FunInfo $ HM.insert var fi (unFunInfo funInfo)
-          in handleLetTarget var bindE pathTraversed [] funInfo' $
-             findWriteTarget inE pathTraversed funInfo'
+              bindWt =
+                  -- TODO: this seems incorrect.
+                  findWriteTarget bindE pathTraversed funInfo'
+              res =
+                  handleLetTarget var bindE pathTraversed [] funInfo' $
+                  findWriteTarget inE pathTraversed funInfo'
+          in case res of
+               WtPrim PwtNone -> bindWt
+               _ -> res
 
 handleLetTarget ::
     Show a => Var -> Expr a -> [RecordKey] -> [RecordKey] -> FunInfo -> WriteTarget -> WriteTarget
@@ -177,7 +188,7 @@ handleLetTarget var bindE pathTraversed pExtra funInfo wtarget =
 -- would need to be considered written if the result is written
 argumentDependency :: Show a => FunInfo -> Lambda a -> [Maybe (Var, [RecordKey])]
 argumentDependency funInfo (Lambda args body) =
-    fmap makeEntry (fmap a_value args)
+    fmap (makeEntry . a_value) args
     where
       makeEntry var =
           case filter (\(v, _) -> v == var) targets of

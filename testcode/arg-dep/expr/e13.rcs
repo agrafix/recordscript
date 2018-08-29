@@ -1,0 +1,5 @@
+(a, b) => {
+    let returnB = (n) => { b };
+    let f = { y: returnB };
+    (f.y)(a)
+}
