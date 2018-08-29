@@ -13,6 +13,7 @@ import Types.Common
 import Control.Monad
 import Data.Bifunctor
 import Data.Functor.Identity
+import Data.Maybe
 import Data.Monoid
 import Test.Hspec
 import Text.Megaparsec (eof)
@@ -54,7 +55,7 @@ withTcExpr what dir go =
 makeWriteTargetTests :: SpecWith ()
 makeWriteTargetTests =
     withTcExpr "write target" "testcode/write-target/expr" $ \(expectedWriteTarget, typedExpr) ->
-    (prettyWriteTarget $ findWriteTarget typedExpr []) `shouldBe`
+    (prettyWriteTarget $ findWriteTarget typedExpr [] emptyFunInfo) `shouldBe`
     expectedWriteTarget
 
 prettyArgDep :: [(Var, [RecordKey])] -> T.Text
@@ -72,7 +73,7 @@ makeArgDepTests =
     withTcExpr "write target" "testcode/arg-dep/expr" $ \(expected, typedExpr) ->
     case typedExpr of
       ELambda (Annotated _ l) ->
-          prettyArgDep (argumentDependency l) `shouldBe` expected
+          prettyArgDep (catMaybes $ argumentDependency emptyFunInfo l) `shouldBe` expected
       _ ->
           expectationFailure $
           "Bad expression: " <> show typedExpr

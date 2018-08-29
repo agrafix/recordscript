@@ -70,8 +70,62 @@ packMany wts =
             WtPrim pwt -> accum <> [pwt]
             WtMany pwts -> accum <> pwts
 
-findWriteTarget :: forall a. Expr a -> [RecordKey] -> WriteTarget
-findWriteTarget expr pathTraversed =
+data FunType
+    = FtFun [Maybe (Var, [RecordKey])]
+    | FtRec (Record FunType)
+    deriving (Show, Eq)
+
+newtype FunInfo
+    = FunInfo { unFunInfo :: HM.HashMap Var FunType }
+    deriving (Show, Eq)
+
+emptyFunInfo :: FunInfo
+emptyFunInfo = FunInfo mempty
+
+pathLookup :: [RecordKey] -> FunType -> Maybe FunType
+pathLookup rk ft =
+    go rk ft
+    where
+      go path ty =
+          case path of
+            [] -> Just ty
+            (x:xs) ->
+                case ty of
+                  FtFun _ -> error "Internal inconsisency"
+                  FtRec (Record hm) ->
+                      case HM.lookup x hm of
+                        Nothing -> Nothing
+                        Just fty -> go xs fty
+
+getFunType :: Show a => Expr a -> FunInfo -> Maybe FunType
+getFunType expr funInfo =
+    case expr of
+      ELambda (Annotated _ lambda) -> Just $ FtFun $ argumentDependency funInfo lambda
+      EVar (Annotated _ var) -> HM.lookup var (unFunInfo funInfo)
+      ERecordAccess (Annotated _ (RecordAccess r rk)) ->
+          case getFunType r funInfo of
+            Nothing -> Nothing
+            Just ft -> pathLookup [rk] ft
+      ERecord (Annotated _ record) ->
+          Just $ FtRec $ recordMapMaybe (\e -> getFunType e funInfo) record
+      EFunApp (Annotated _ (FunApp rcvE _)) ->
+          getFunType rcvE funInfo
+      _ -> error ("OOPS: " ++ show expr)
+
+funWriteThrough :: forall a. Show a => [Maybe (Var, [RecordKey])] -> [Expr a] -> FunInfo -> WriteTarget
+funWriteThrough funType args funInfo =
+    packMany $ fmap (uncurry makeTarget) $ zip funType args
+    where
+      makeTarget :: Maybe (Var, [RecordKey]) -> Expr a -> WriteTarget
+      makeTarget mArgTy arg =
+          case mArgTy of
+            Nothing -> WtPrim PwtNone
+            Just (_, keys) ->
+                -- TODO: fix me this is wrong
+                findWriteTarget arg keys funInfo
+
+findWriteTarget :: forall a. Show a => Expr a -> [RecordKey] -> FunInfo -> WriteTarget
+findWriteTarget expr pathTraversed funInfo =
     case expr of
       ELit _ -> WtPrim PwtNone -- ill typed
       EList _ -> WtPrim PwtNone -- ill typed
@@ -80,45 +134,56 @@ findWriteTarget expr pathTraversed =
       ERecord _ -> WtPrim PwtNone -- don't care
       EVar (Annotated _ var) -> WtPrim (PwtVar var pathTraversed) -- trivial
       ERecordMerge (Annotated _ (RecordMerge tgt _ _)) ->
-          findWriteTarget tgt pathTraversed
+          findWriteTarget tgt pathTraversed funInfo
       ERecordAccess (Annotated _ (RecordAccess r rk)) ->
-          findWriteTarget r (pathTraversed ++ [rk])
+          findWriteTarget r (pathTraversed ++ [rk]) funInfo
       EIf (Annotated _ (If bodies elseExpr)) ->
           let exprs = fmap snd bodies ++ [elseExpr]
-          in packMany $ fmap (flip findWriteTarget pathTraversed) exprs
+          in packMany $ fmap (\e -> findWriteTarget e pathTraversed funInfo) exprs
       ECase (Annotated _ (Case _ cases)) ->
           let exprs = fmap snd cases
-          in packMany $ fmap (flip findWriteTarget pathTraversed) exprs
+          in packMany $ fmap (\e -> findWriteTarget e pathTraversed funInfo) exprs
       EFunApp (Annotated _ (FunApp rcvE args)) ->
-          -- TODO: this is tricky, here we need to know how the result
-          -- related to it's arguments first.
-          error "IMPLEMENT ME 2" rcvE args
+          case getFunType rcvE funInfo of
+            Nothing -> error ("Can't call function")
+            Just (FtFun ft) -> funWriteThrough ft args funInfo
+            Just (FtRec r) -> error ("IMPLEMENT ME" ++ show r)
       ELet (Annotated _ (Let (Annotated _ var) bindE inE)) ->
-          -- TODO: This is probably only partially correct :sadpanda:
-          handleLetTarget var bindE [] $ findWriteTarget inE pathTraversed
-    where
-      handleLetTarget :: Var -> Expr a -> [RecordKey] -> WriteTarget -> WriteTarget
-      handleLetTarget var bindE pExtra wtarget =
-          case wtarget of
-            WtPrim (PwtVar v recordPath) | v == var ->
-              case findWriteTarget bindE pathTraversed of
-                WtPrim (PwtVar v2 rp2) ->
-                    WtPrim (PwtVar v2 (rp2 <> recordPath))
-                WtMany wTargets ->
-                    packMany (fmap (handleLetTarget var bindE recordPath . WtPrim) wTargets)
-                x -> x
-            WtPrim (PwtVar v rp) -> WtPrim (PwtVar v (rp <> pExtra))
-            WtPrim PwtNone -> WtPrim PwtNone
-            WtMany wTargets ->
-                packMany $ fmap (handleLetTarget var bindE pExtra . WtPrim) wTargets
+          let funInfo' =
+                  case getFunType bindE funInfo of
+                    Nothing -> funInfo
+                    Just fi ->
+                        FunInfo $ HM.insert var fi (unFunInfo funInfo)
+          in handleLetTarget var bindE pathTraversed [] funInfo' $
+             findWriteTarget inE pathTraversed funInfo'
+
+handleLetTarget ::
+    Show a => Var -> Expr a -> [RecordKey] -> [RecordKey] -> FunInfo -> WriteTarget -> WriteTarget
+handleLetTarget var bindE pathTraversed pExtra funInfo wtarget =
+    case wtarget of
+      WtPrim (PwtVar v recordPath) | v == var ->
+        case findWriteTarget bindE pathTraversed funInfo of
+          WtPrim (PwtVar v2 rp2) ->
+              WtPrim (PwtVar v2 (rp2 <> recordPath))
+          WtMany wTargets ->
+              packMany (fmap (handleLetTarget var bindE pathTraversed recordPath funInfo . WtPrim) wTargets)
+          x -> x
+      WtPrim (PwtVar v rp) -> WtPrim (PwtVar v (rp <> pExtra))
+      WtPrim PwtNone -> WtPrim PwtNone
+      WtMany wTargets ->
+          packMany $ fmap (handleLetTarget var bindE pathTraversed pExtra funInfo . WtPrim) wTargets
 
 -- | Given a lambda, infer which arguments
 -- would need to be considered written if the result is written
--- TODO: what about aliasing?
-argumentDependency :: Lambda a -> [(Var, [RecordKey])]
-argumentDependency (Lambda args body) =
-    handleTarget $ findWriteTarget body []
+argumentDependency :: Show a => FunInfo -> Lambda a -> [Maybe (Var, [RecordKey])]
+argumentDependency funInfo (Lambda args body) =
+    fmap makeEntry (fmap a_value args)
     where
+      makeEntry var =
+          case filter (\(v, _) -> v == var) targets of
+            [x] -> Just x
+            _ -> Nothing
+      targets = handleTarget $ findWriteTarget body [] funInfo
       relevantVars = S.fromList $ fmap a_value args
       handleTarget wt =
           case wt of

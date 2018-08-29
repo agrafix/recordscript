@@ -15,3 +15,7 @@ newtype RecordKey
 newtype Record v
     = Record { unRecord :: HM.HashMap RecordKey v}
     deriving (Eq, Ord, Show, Generic, Data, Typeable, Functor, Foldable, Traversable)
+
+recordMapMaybe :: (a -> Maybe b) -> Record a -> Record b
+recordMapMaybe f (Record r) =
+    Record $ HM.mapMaybe f r

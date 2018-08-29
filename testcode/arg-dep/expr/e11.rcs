@@ -1,0 +1,5 @@
+(a, b) => {
+    let id = (n) => { n };
+    let f = { y: id };
+    (id(f.y))(a)
+}

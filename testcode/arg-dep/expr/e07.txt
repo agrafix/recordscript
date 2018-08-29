@@ -1,2 +1,2 @@
-- baz.ba.da.bim
 - bar.plop.bim
+- baz.ba.da.bim
