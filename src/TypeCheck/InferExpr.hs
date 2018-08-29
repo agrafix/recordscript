@@ -221,6 +221,7 @@ unifyRecord pos r1 r2 =
 unifyTypes :: InferM m => Pos -> Type -> Type -> m Type
 unifyTypes pos t1 t2 =
     case (t1, t2) of
+      (x, y) | x == y -> pure x
       (TCon c1, TCon c2) ->
           if c1 == c2
           then pure t1
@@ -374,7 +375,6 @@ inferIf pos ifStmt =
 
 inferLet :: InferM m => Pos -> Let Pos -> m (Let TypedPos, Type)
 inferLet pos letStmt =
-    -- todo: how to handle recursion?
     -- note that we assume that all variable names are globally unique
     -- at this point
     do let (Annotated boundAnn boundVar) = l_boundVar letStmt

@@ -1,0 +1,6 @@
+(a, b) => {
+    let loop = (x, ctr) => {
+        if (ctr == 10) { x } else { loop(x, ctr + 1) }
+    };
+    loop(a, 0)
+}
