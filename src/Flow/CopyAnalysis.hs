@@ -18,8 +18,6 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Sequence as Seq
 import qualified Data.Set as S
 
-import Debug.Trace
-
 data CopyState
     = CoppyState
     { is_context :: Context
@@ -75,6 +73,7 @@ packMany wts =
 data FunType
     = FtFun [Maybe (Var, [RecordKey])]
     | FtRec (Record FunType)
+    | FtSelf
     deriving (Show, Eq)
 
 newtype FunInfo
@@ -85,8 +84,8 @@ emptyFunInfo :: FunInfo
 emptyFunInfo = FunInfo mempty
 
 pathLookup :: [RecordKey] -> FunType -> Maybe FunType
-pathLookup rk ft =
-    go rk ft
+pathLookup =
+    go
     where
       go path ty =
           case path of
@@ -94,6 +93,7 @@ pathLookup rk ft =
             (x:xs) ->
                 case ty of
                   FtFun _ -> error "Internal inconsisency"
+                  FtSelf -> error "Shouldn't happen"
                   FtRec (Record hm) ->
                       case HM.lookup x hm of
                         Nothing -> Nothing
@@ -133,7 +133,6 @@ findWriteTarget expr pathTraversed funInfo =
       ELambda (Annotated _ (Lambda _ body)) ->
           -- TODO: is this correct? Probably need to remove the targets
           -- that the arguments already handle.
-          trace ("Checking lambda") $
           findWriteTarget body pathTraversed funInfo
       ERecord _ -> WtPrim PwtNone -- don't care
       EVar (Annotated _ var) -> WtPrim (PwtVar var pathTraversed) -- trivial
@@ -150,14 +149,16 @@ findWriteTarget expr pathTraversed funInfo =
       EFunApp (Annotated _ (FunApp rcvE args)) ->
           case getFunType rcvE funInfo of
             Nothing -> error ("Can't call function")
+            Just FtSelf -> WtPrim PwtNone -- don't care about writes to self
             Just (FtFun ft) -> funWriteThrough ft args funInfo
             Just (FtRec r) -> error ("IMPLEMENT ME" ++ show r)
       ELet (Annotated _ (Let (Annotated _ var) bindE inE)) ->
-          let funInfo' =
-                  case getFunType bindE funInfo of
+          let tempFunInfo =
+                  FunInfo $ HM.insert var FtSelf (unFunInfo funInfo)
+              funInfo' =
+                  case getFunType bindE tempFunInfo of
                     Nothing -> funInfo
-                    Just fi ->
-                        FunInfo $ HM.insert var fi (unFunInfo funInfo)
+                    Just fi -> FunInfo $ HM.insert var fi (unFunInfo funInfo)
               bindWt =
                   -- TODO: this seems incorrect.
                   findWriteTarget bindE pathTraversed funInfo'

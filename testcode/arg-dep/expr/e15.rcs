@@ -1,0 +1,7 @@
+(a, b) => {
+    let loop = (x, ctr) => {
+        let loopAlias = loop;
+        if (ctr == 10) { x } else { loopAlias(x, ctr + 1) }
+    };
+    loop(a, 0)
+}
