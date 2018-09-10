@@ -25,9 +25,15 @@ prettyWriteTarget :: WriteTarget -> T.Text
 prettyWriteTarget wt =
     case wt of
       WtPrim PwtNone -> "~"
-      WtPrim (PwtVar (Var x) path)
-          | null path -> x
-          | otherwise -> x <> "." <> T.intercalate "." (fmap unRecordKey path)
+      WtPrim (PwtVar (Var x) path copyAllowed)
+          | null path -> prefix
+          | otherwise -> prefix <> "." <> T.intercalate "." (fmap unRecordKey path)
+          where
+            prefix = copyPrefix <> x
+            copyPrefix =
+                case copyAllowed of
+                  CaBanned -> "!"
+                  CaAllowed -> ""
       WtMany many ->
           "(" <> T.intercalate "|" (fmap (prettyWriteTarget . WtPrim) many) <> ")"
 
@@ -58,14 +64,18 @@ makeWriteTargetTests =
     (prettyWriteTarget $ writePathAnalysis typedExpr emptyEnv) `shouldBe`
     expectedWriteTarget
 
-prettyArgDep :: [(Var, [RecordKey])] -> T.Text
+prettyArgDep :: [(Var, [RecordKey], CopyAllowed)] -> T.Text
 prettyArgDep x =
-    T.intercalate "\n" $ flip fmap x $ \(Var v, path) ->
-    let renderedPath =
+    T.intercalate "\n" $ flip fmap x $ \(Var v, path, ca) ->
+    let prefix =
+            case ca of
+              CaAllowed -> ""
+              CaBanned -> "!"
+        renderedPath =
             if null path
             then ""
             else "." <> T.intercalate "." (fmap unRecordKey path)
-    in "- " <> v <> renderedPath
+    in "- " <> prefix <> v <> renderedPath
 
 
 makeArgDepTests :: SpecWith ()

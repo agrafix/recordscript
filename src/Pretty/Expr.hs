@@ -77,7 +77,7 @@ prettyMerge rm =
     where
       noCopy =
           if rm_noCopy rm
-          then "~"
+          then "!"
           else ""
       handleE e =
           "..." <> prettyExpr e

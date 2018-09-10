@@ -2,7 +2,7 @@
 module Flow.CopyAnalysis
     ( writePathAnalysis
     , emptyEnv, emptyFunInfo
-    , WriteTarget(..), PrimitiveWriteTarget(..)
+    , WriteTarget(..), PrimitiveWriteTarget(..), CopyAllowed(..)
     , argumentDependency
     )
 where
@@ -16,8 +16,13 @@ import Data.Monoid
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as S
 
+data CopyAllowed
+    = CaAllowed
+    | CaBanned
+    deriving (Show, Eq)
+
 data PrimitiveWriteTarget
-    = PwtVar Var [RecordKey]
+    = PwtVar Var [RecordKey] CopyAllowed
     | PwtNone
     deriving (Show, Eq)
 
@@ -44,7 +49,7 @@ packMany wts =
             WtMany pwts -> accum <> pwts
 
 data FunType
-    = FtFun [Maybe (Var, [RecordKey])]
+    = FtFun [Maybe (Var, [RecordKey], CopyAllowed)]
     | FtRec (Record FunType)
     | FtSelf
     deriving (Show, Eq)
@@ -87,24 +92,32 @@ getFunType expr funInfo =
           getFunType rcvE funInfo
       _ -> Nothing -- is this right??
 
-funWriteThrough :: forall a. Show a => [Maybe (Var, [RecordKey])] -> [Expr a] -> FunInfo -> WriteTarget
+funWriteThrough ::
+    forall a. Show a
+    => [Maybe (Var, [RecordKey], CopyAllowed)]
+    -> [Expr a]
+    -> FunInfo
+    -> WriteTarget
 funWriteThrough funType args funInfo =
     packMany $ fmap (uncurry makeTarget) $ zip funType args
     where
-      makeTarget :: Maybe (Var, [RecordKey]) -> Expr a -> WriteTarget
+      makeTarget :: Maybe (Var, [RecordKey], CopyAllowed) -> Expr a -> WriteTarget
       makeTarget mArgTy arg =
           case mArgTy of
-            Nothing -> WtPrim PwtNone
-            Just (_, keys) -> writePathAnalysis arg (Env keys funInfo)
+            Nothing ->
+                WtPrim PwtNone
+            Just (_, keys, copyAllowed) ->
+                writePathAnalysis arg (Env keys funInfo copyAllowed)
 
 data Env
     = Env
     { e_pathTraversed :: [RecordKey]
     , e_funInfo :: FunInfo
+    , e_copyAllowed :: CopyAllowed
     } deriving (Show, Eq)
 
 emptyEnv :: Env
-emptyEnv = Env [] emptyFunInfo
+emptyEnv = Env [] emptyFunInfo CaAllowed
 
 writePathAnalysis :: forall a. Show a => Expr a -> Env -> WriteTarget
 writePathAnalysis expr env =
@@ -117,9 +130,11 @@ writePathAnalysis expr env =
           -- that the arguments already handle.
           writePathAnalysis body env
       ERecord _ -> WtPrim PwtNone -- don't care
-      EVar (Annotated _ var) -> WtPrim (PwtVar var $ e_pathTraversed env) -- trivial
-      ERecordMerge (Annotated _ (RecordMerge tgt _ _)) ->
-          writePathAnalysis tgt env
+      EVar (Annotated _ var) ->
+          WtPrim (PwtVar var (e_pathTraversed env) $ e_copyAllowed env)
+      ERecordMerge (Annotated _ (RecordMerge tgt _ noCopy)) ->
+          writePathAnalysis tgt $
+          env { e_copyAllowed = if not noCopy then CaAllowed else CaBanned }
       ERecordAccess (Annotated _ (RecordAccess r rk)) ->
           writePathAnalysis r $ env { e_pathTraversed = e_pathTraversed env ++ [rk] }
       EIf (Annotated _ (If bodies elseExpr)) ->
@@ -155,34 +170,38 @@ handleLetTarget ::
     Show a => Var -> Expr a -> [RecordKey] -> [RecordKey] -> FunInfo -> WriteTarget -> WriteTarget
 handleLetTarget var bindE pathTraversed pExtra funInfo wtarget =
     case wtarget of
-      WtPrim (PwtVar v recordPath) | v == var ->
-        case writePathAnalysis bindE (Env pathTraversed funInfo) of
-          WtPrim (PwtVar v2 rp2) ->
-              WtPrim (PwtVar v2 (rp2 <> recordPath))
+      WtPrim (PwtVar v recordPath x) | v == var ->
+        case writePathAnalysis bindE (Env pathTraversed funInfo x) of
+          WtPrim (PwtVar v2 rp2 y) ->
+              WtPrim (PwtVar v2 (rp2 <> recordPath) y)
           WtMany wTargets ->
               packMany (fmap (handleLetTarget var bindE pathTraversed recordPath funInfo . WtPrim) wTargets)
-          x -> x
-      WtPrim (PwtVar v rp) -> WtPrim (PwtVar v (rp <> pExtra))
+          z -> z
+      WtPrim (PwtVar v rp x) -> WtPrim (PwtVar v (rp <> pExtra) x)
       WtPrim PwtNone -> WtPrim PwtNone
       WtMany wTargets ->
           packMany $ fmap (handleLetTarget var bindE pathTraversed pExtra funInfo . WtPrim) wTargets
 
 -- | Given a lambda, infer which arguments
 -- would need to be considered written if the result is written
-argumentDependency :: Show a => FunInfo -> Lambda a -> [Maybe (Var, [RecordKey])]
+argumentDependency ::
+    Show a
+    => FunInfo
+    -> Lambda a
+    -> [Maybe (Var, [RecordKey], CopyAllowed)]
 argumentDependency funInfo (Lambda args body) =
     fmap (makeEntry . a_value) args
     where
       makeEntry var =
-          case filter (\(v, _) -> v == var) targets of
+          case filter (\(v, _, _) -> v == var) targets of
             [x] -> Just x
             _ -> Nothing
-      targets = handleTarget $ writePathAnalysis body (Env [] funInfo)
+      targets = handleTarget $ writePathAnalysis body (Env [] funInfo CaAllowed)
       relevantVars = S.fromList $ fmap a_value args
       handleTarget wt =
           case wt of
             WtMany x ->
                 concatMap (handleTarget . WtPrim) x
-            WtPrim (PwtVar x rks) ->
-                if x `S.member` relevantVars then [(x, rks)] else []
+            WtPrim (PwtVar x rks copyAllowed) ->
+                if x `S.member` relevantVars then [(x, rks, copyAllowed)] else []
             WtPrim PwtNone -> []

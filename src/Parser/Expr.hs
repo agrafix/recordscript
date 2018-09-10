@@ -79,7 +79,7 @@ mergeP :: Parser (RecordMerge Pos)
 mergeP =
     braces $
     do _ <- symbol "..."
-       noCopy <- isJust <$> optional (symbol "~")
+       noCopy <- isJust <$> optional (symbol "!")
        targetE <- exprP
        _ <- symbol ","
        sourcesE <-
