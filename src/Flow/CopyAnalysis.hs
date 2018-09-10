@@ -2,7 +2,8 @@
 module Flow.CopyAnalysis
     ( writePathAnalysis
     , emptyEnv, emptyFunInfo
-    , WriteTarget(..), PrimitiveWriteTarget(..), CopyAllowed(..)
+    , WriteTarget(..), PrimitiveWriteTarget(..)
+    , CopyAllowed(..), WriteOccured(..)
     , argumentDependency
     )
 where
@@ -21,8 +22,13 @@ data CopyAllowed
     | CaBanned
     deriving (Show, Eq)
 
+data WriteOccured
+    = WoWrite
+    | WoRead
+    deriving (Show, Eq)
+
 data PrimitiveWriteTarget
-    = PwtVar Var [RecordKey] CopyAllowed
+    = PwtVar Var [RecordKey] CopyAllowed WriteOccured
     | PwtNone
     deriving (Show, Eq)
 
@@ -49,7 +55,7 @@ packMany wts =
             WtMany pwts -> accum <> pwts
 
 data FunType
-    = FtFun [Maybe (Var, [RecordKey], CopyAllowed)]
+    = FtFun [Maybe (Var, [RecordKey], CopyAllowed, WriteOccured)]
     | FtRec (Record FunType)
     | FtSelf
     deriving (Show, Eq)
@@ -94,30 +100,34 @@ getFunType expr funInfo =
 
 funWriteThrough ::
     forall a. Show a
-    => [Maybe (Var, [RecordKey], CopyAllowed)]
+    => [Maybe (Var, [RecordKey], CopyAllowed, WriteOccured)]
     -> [Expr a]
     -> FunInfo
     -> WriteTarget
 funWriteThrough funType args funInfo =
     packMany $ fmap (uncurry makeTarget) $ zip funType args
     where
-      makeTarget :: Maybe (Var, [RecordKey], CopyAllowed) -> Expr a -> WriteTarget
+      makeTarget ::
+          Maybe (Var, [RecordKey], CopyAllowed, WriteOccured)
+          -> Expr a
+          -> WriteTarget
       makeTarget mArgTy arg =
           case mArgTy of
             Nothing ->
                 WtPrim PwtNone
-            Just (_, keys, copyAllowed) ->
-                writePathAnalysis arg (Env keys funInfo copyAllowed)
+            Just (_, keys, copyAllowed, wo) ->
+                writePathAnalysis arg (Env keys funInfo copyAllowed wo)
 
 data Env
     = Env
     { e_pathTraversed :: [RecordKey]
     , e_funInfo :: FunInfo
     , e_copyAllowed :: CopyAllowed
+    , e_writeOccured :: WriteOccured
     } deriving (Show, Eq)
 
 emptyEnv :: Env
-emptyEnv = Env [] emptyFunInfo CaAllowed
+emptyEnv = Env [] emptyFunInfo CaAllowed WoRead
 
 writePathAnalysis :: forall a. Show a => Expr a -> Env -> WriteTarget
 writePathAnalysis expr env =
@@ -131,10 +141,13 @@ writePathAnalysis expr env =
           writePathAnalysis body env
       ERecord _ -> WtPrim PwtNone -- don't care
       EVar (Annotated _ var) ->
-          WtPrim (PwtVar var (e_pathTraversed env) $ e_copyAllowed env)
+          WtPrim (PwtVar var (e_pathTraversed env) (e_copyAllowed env) (e_writeOccured env))
       ERecordMerge (Annotated _ (RecordMerge tgt _ noCopy)) ->
           writePathAnalysis tgt $
-          env { e_copyAllowed = if not noCopy then CaAllowed else CaBanned }
+          env
+          { e_copyAllowed = if not noCopy then CaAllowed else CaBanned
+          , e_writeOccured = WoWrite
+          }
       ERecordAccess (Annotated _ (RecordAccess r rk)) ->
           writePathAnalysis r $ env { e_pathTraversed = e_pathTraversed env ++ [rk] }
       EIf (Annotated _ (If bodies elseExpr)) ->
@@ -170,14 +183,14 @@ handleLetTarget ::
     Show a => Var -> Expr a -> [RecordKey] -> [RecordKey] -> FunInfo -> WriteTarget -> WriteTarget
 handleLetTarget var bindE pathTraversed pExtra funInfo wtarget =
     case wtarget of
-      WtPrim (PwtVar v recordPath x) | v == var ->
-        case writePathAnalysis bindE (Env pathTraversed funInfo x) of
-          WtPrim (PwtVar v2 rp2 y) ->
-              WtPrim (PwtVar v2 (rp2 <> recordPath) y)
+      WtPrim (PwtVar v recordPath ca wo) | v == var ->
+        case writePathAnalysis bindE (Env pathTraversed funInfo ca wo) of
+          WtPrim (PwtVar v2 rp2 ca2 wo2) ->
+              WtPrim (PwtVar v2 (rp2 <> recordPath) ca2 wo2)
           WtMany wTargets ->
               packMany (fmap (handleLetTarget var bindE pathTraversed recordPath funInfo . WtPrim) wTargets)
           z -> z
-      WtPrim (PwtVar v rp x) -> WtPrim (PwtVar v (rp <> pExtra) x)
+      WtPrim (PwtVar v rp x y) -> WtPrim (PwtVar v (rp <> pExtra) x y)
       WtPrim PwtNone -> WtPrim PwtNone
       WtMany wTargets ->
           packMany $ fmap (handleLetTarget var bindE pathTraversed pExtra funInfo . WtPrim) wTargets
@@ -188,20 +201,21 @@ argumentDependency ::
     Show a
     => FunInfo
     -> Lambda a
-    -> [Maybe (Var, [RecordKey], CopyAllowed)]
+    -> [Maybe (Var, [RecordKey], CopyAllowed, WriteOccured)]
 argumentDependency funInfo (Lambda args body) =
     fmap (makeEntry . a_value) args
     where
       makeEntry var =
-          case filter (\(v, _, _) -> v == var) targets of
+          case filter (\(v, _, _, _) -> v == var) targets of
             [x] -> Just x
             _ -> Nothing
-      targets = handleTarget $ writePathAnalysis body (Env [] funInfo CaAllowed)
+      targets =
+          handleTarget $ writePathAnalysis body (Env [] funInfo CaAllowed WoRead)
       relevantVars = S.fromList $ fmap a_value args
       handleTarget wt =
           case wt of
             WtMany x ->
                 concatMap (handleTarget . WtPrim) x
-            WtPrim (PwtVar x rks copyAllowed) ->
-                if x `S.member` relevantVars then [(x, rks, copyAllowed)] else []
+            WtPrim (PwtVar x rks copyAllowed wo) ->
+                if x `S.member` relevantVars then [(x, rks, copyAllowed, wo)] else []
             WtPrim PwtNone -> []
