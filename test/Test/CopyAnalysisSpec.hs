@@ -55,7 +55,7 @@ withTcExpr what dir go =
 makeWriteTargetTests :: SpecWith ()
 makeWriteTargetTests =
     withTcExpr "write target" "testcode/write-target/expr" $ \(expectedWriteTarget, typedExpr) ->
-    (prettyWriteTarget $ findWriteTarget typedExpr emptyEnv) `shouldBe`
+    (prettyWriteTarget $ writePathAnalysis typedExpr emptyEnv) `shouldBe`
     expectedWriteTarget
 
 prettyArgDep :: [(Var, [RecordKey])] -> T.Text
