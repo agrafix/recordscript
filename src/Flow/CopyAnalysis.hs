@@ -37,6 +37,18 @@ data WriteTarget
     | WtMany [PrimitiveWriteTarget]
     deriving (Show, Eq)
 
+hadWrite :: WriteTarget -> Bool
+hadWrite wt =
+    case wt of
+      WtPrim pwt -> handlePwt pwt
+      WtMany wmany -> any handlePwt wmany
+    where
+      handlePwt p =
+          case p of
+            PwtNone -> False
+            PwtVar _ _ _ WoWrite -> True
+            _ -> False
+
 packMany :: [WriteTarget] -> WriteTarget
 packMany wts =
     case wts of
@@ -177,6 +189,7 @@ writePathAnalysis expr env =
                   writePathAnalysis inE $ env { e_funInfo = funInfo' }
           in case res of
                WtPrim PwtNone -> bindWt
+               _ | not (hadWrite res) && hadWrite bindWt -> bindWt
                _ -> res
 
 handleLetTarget ::
