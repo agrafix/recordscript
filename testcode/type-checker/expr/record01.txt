@@ -1,1 +1,1 @@
-{|foo: String|}
+{foo: String}

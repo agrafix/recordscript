@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 module TypeCheck.InferExpr where
 
+import Pretty.Types
 import TypeCheck.InferLiteral
 import Types.Annotation
 import Types.Ast
@@ -39,6 +40,11 @@ data Error
     , e_error :: ErrorMessage
     } deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
+prettyInferError :: Error -> T.Text
+prettyInferError e =
+    "Error on " <> T.pack (show $ e_pos e) <> ": \n"
+    <> prettyErrorMessage (e_error e)
+
 data ErrorMessage
     = ETypeMismatch Type Type
     | EBadRecvType Type
@@ -47,6 +53,29 @@ data ErrorMessage
     | ERecordAccessTypeMismatch Type RecordKey
     | ERecordAccessUnknown (Record Type) RecordKey
     deriving (Eq, Ord, Show, Generic, Data, Typeable)
+
+prettyErrorMessage :: ErrorMessage -> T.Text
+prettyErrorMessage em =
+    case em of
+      ETypeMismatch t1 t2 ->
+          "Expected type: \n"
+          <> prettyType t1
+          <> "\nBut got: \n"
+          <> prettyType t2
+      EBadRecvType t1 ->
+          prettyType t1 <> " is not a function type"
+      EBinOpTypeMismatch t1 ts ->
+          "Invalid type for binary operation: \n"
+          <> prettyType t1
+          <> "\n expected one of: \n"
+          <> T.intercalate "\n- " (map prettyType ts)
+      ERecordMergeTypeMismatch t ->
+          "Invalid merge record type: \n" <> prettyType t
+      ERecordAccessTypeMismatch t (RecordKey k) ->
+          "Can't access key " <> k <> " in record: \n" <> prettyType t
+      ERecordAccessUnknown recordType (RecordKey k) ->
+          "Invalid value for record access on key " <> k <> ": \n"
+          <> prettyType (TRec $ ROpen recordType)
 
 type InferM m = (MonadError Error m, MonadState InferState m)
 
@@ -312,10 +341,11 @@ inferMerge pos recMerge =
             case resTy of
               TRec (ROpen r) -> handle r typeMap
               TRec (RClosed r) -> handle r typeMap
-              t ->
+              _ ->
                   -- TODO: is this merge correct here?
                   do let targetUnify = Record mempty
-                     _ <- unifyTypes pos t (TRec $ ROpen targetUnify)
+                     _ <-
+                         unifyTypes pos (getExprType checkingExpr) (TRec $ ROpen targetUnify)
                      handle targetUnify typeMap
 
         handle :: Record Type -> MergeMapTypes -> m MergeMapTypes
@@ -334,22 +364,34 @@ inferMerge pos recMerge =
 inferAccess :: InferM m => Pos -> RecordAccess Pos -> m (RecordAccess TypedPos, Type)
 inferAccess pos recAccess =
     do recordTyped <- inferExpr (ra_record recAccess)
-       resTy <- resolvedType (getExprType recordTyped)
-       -- TODO: this is not correct, we should do some unification here
-       -- and try to merge in the key we are looking for.
+       let recTy = getExprType recordTyped
+       newVar <- TVar <$> freshTypeVar
+       let builder =
+               case recTy of
+                 TRec (ROpen _) -> TRec . ROpen
+                 TRec (RClosed _) -> TRec . RClosed
+                 _ -> TRec . ROpen
+           buildMap =
+               case recTy of
+                 TRec (ROpen hm) -> handleHm hm newVar
+                 TRec (RClosed hm) -> handleHm hm newVar
+                 _ -> HM.fromList [(fld, newVar)]
+           targetUnify =
+               builder $ Record buildMap
+       unifiedType <-
+           unifyTypes pos recTy targetUnify >>= resolvedType
        exprType <-
-           case resTy of
+           case unifiedType of
              TRec (ROpen r) -> handle r
              TRec (RClosed r) -> handle r
-             t ->
-                 do newVar <- TVar <$> freshTypeVar
-                    let targetUnify =
-                            TRec $ ROpen $ Record $ HM.fromList [(fld, newVar)]
-                    _ <- unifyTypes pos t targetUnify
-                    pure newVar
+             _ -> pure newVar
        pure (RecordAccess recordTyped fld, exprType)
     where
         fld = ra_field recAccess
+        handleHm (Record hm) newVar =
+            case HM.lookup fld hm of
+              Just _ -> hm
+              Nothing -> hm <> HM.fromList [(fld, newVar)]
         handle r@(Record hm) =
             case HM.lookup fld hm of
               Just ty -> pure ty
@@ -515,7 +557,7 @@ inferExpr expr =
              pure $ EList (Annotated (TypedPos p listType) exprsTyped)
       ERecord (Annotated p record) ->
           do recordTyped <- inferRecord record
-             let recordType = TRec $ RClosed $ getRecordType recordTyped
+             let recordType = TRec $ ROpen $ getRecordType recordTyped
              pure $ ERecord (Annotated (TypedPos p recordType) recordTyped)
       ERecordMerge (Annotated p recordMerge) ->
           do (mergeTyped, mergeType) <- inferMerge p recordMerge

@@ -45,7 +45,8 @@ makeTypeCheckerTests =
               let parseResult =
                       first parseErrorPretty $
                       executeParser inFile (exprP <* eof) content
-                  typeCheckResult = first show . runIdentity . runInferM . inferExpr
+                  typeCheckResult =
+                      first (T.unpack . prettyInferError) . runIdentity . runInferM . inferExpr
                   formatType (expr, inferState) =
                       prettyType $ getExprType $ resolvePass expr inferState
               case parseResult >>= typeCheckResult of
