@@ -13,6 +13,7 @@ import qualified Names.StdLib as N
 import Control.Monad.Except
 import Control.Monad.State
 import Data.Data
+import Data.Maybe
 import Data.Monoid
 import GHC.Generics
 import qualified Data.Foldable as F
@@ -20,6 +21,8 @@ import qualified Data.Generics as G
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Text as T
+
+import Debug.Trace
 
 data InferState
     = InferState
@@ -247,8 +250,17 @@ unifyRecord pos r1 r2 =
       throwTypeError =
           throwError $ Error pos (ETypeMismatch (TRec r1) (TRec r2))
 
+tryUnifyTypes :: InferM m => Pos -> Type -> Type -> m (Maybe Type)
+tryUnifyTypes pos t1 t2 =
+    (Just <$> unifyTypes pos t1 t2) `catchError` \_ -> pure Nothing
+
 unifyTypes :: InferM m => Pos -> Type -> Type -> m Type
 unifyTypes pos t1 t2 =
+    do r <- unifyTypes' pos t1 t2
+       pure $ trace (T.unpack $ "Unify: " <> prettyType t1 <> " w " <> prettyType t2 <> " -> " <> prettyType r) r
+
+unifyTypes' :: InferM m => Pos -> Type -> Type -> m Type
+unifyTypes' pos t1 t2 =
     case (t1, t2) of
       (x, y) | x == y -> pure x
       (TCon c1, TCon c2) ->
@@ -521,8 +533,8 @@ inferBinOp pos bo =
       BoEq x y -> binOpReq BoEq x y N.tBool
       BoNeq x y -> binOpReq BoNeq x y N.tBool
     where
-        numTypes = Just [N.tInt, N.tFloat]
-        boolTypes = Just [N.tBool]
+        numTypes = [N.tInt, N.tFloat]
+        boolTypes = [N.tBool]
         binOpReq pack lhs rhs forcedType =
             do lhsE <- inferExpr lhs
                rhsE <- inferExpr rhs
@@ -534,13 +546,11 @@ inferBinOp pos bo =
                rhsE <- inferExpr rhs
                returnType <-
                    unifyTypes pos (getExprType lhsE) (getExprType rhsE)
-                   >>= resolvedType
-               case allowedTypes of
-                 Just at ->
-                     unless (returnType `elem` at) $
-                     throwError $ Error pos (EBinOpTypeMismatch returnType at)
-                 Nothing -> pure ()
-               pure (pack lhsE rhsE, returnType)
+               unifyAttempts <-
+                   mapM (tryUnifyTypes pos returnType) allowedTypes
+               case catMaybes unifyAttempts of
+                 (x:_) -> pure (pack lhsE rhsE, x)
+                 _ -> throwError $ Error pos (EBinOpTypeMismatch returnType allowedTypes)
 
 inferExpr :: InferM m => Expr Pos -> m (Expr TypedPos)
 inferExpr expr =
