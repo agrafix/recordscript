@@ -95,38 +95,39 @@ pathLookup =
                         Nothing -> Nothing
                         Just fty -> go xs fty
 
-getFunType :: Show a => Expr a -> FunInfo -> Maybe FunType
+getFunType :: (AnalysisM m, Show a) => Expr a -> FunInfo -> m (Maybe FunType)
 getFunType expr funInfo =
     case expr of
-      ELambda (Annotated _ lambda) -> Just $ FtFun $ argumentDependency funInfo lambda
-      EVar (Annotated _ var) -> HM.lookup var (unFunInfo funInfo)
+      ELambda (Annotated _ lambda) -> Just . FtFun <$> argumentDependency funInfo lambda
+      EVar (Annotated _ var) -> pure $ HM.lookup var (unFunInfo funInfo)
       ERecordAccess (Annotated _ (RecordAccess r rk)) ->
-          case getFunType r funInfo of
-            Nothing -> Nothing
-            Just ft -> pathLookup [rk] ft
+          getFunType r funInfo >>= \res ->
+          case res of
+            Nothing -> pure Nothing
+            Just ft -> pure $ pathLookup [rk] ft
       ERecord (Annotated _ record) ->
-          Just $ FtRec $ recordMapMaybe (\e -> getFunType e funInfo) record
+          Just . FtRec <$> recordMapMaybeM (\e -> getFunType e funInfo) record
       EFunApp (Annotated _ (FunApp rcvE _)) ->
           getFunType rcvE funInfo
-      _ -> Nothing -- is this right??
+      _ -> pure Nothing -- TODO: is this right??
 
 funWriteThrough ::
-    forall a. Show a
+    forall m a. (AnalysisM m, Show a)
     => [Maybe (Var, [RecordKey], CopyAllowed, WriteOccured)]
     -> [Expr a]
     -> FunInfo
-    -> WriteTarget
+    -> m WriteTarget
 funWriteThrough funType args funInfo =
-    packMany $ fmap (uncurry makeTarget) $ zip funType args
+    packMany <$> mapM (uncurry makeTarget) (zip funType args)
     where
       makeTarget ::
           Maybe (Var, [RecordKey], CopyAllowed, WriteOccured)
           -> Expr a
-          -> WriteTarget
+          -> m WriteTarget
       makeTarget mArgTy arg =
           case mArgTy of
             Nothing ->
-                WtPrim PwtNone
+                pure $ WtPrim PwtNone
             Just (_, keys, copyAllowed, wo) ->
                 writePathAnalysis arg (Env keys funInfo copyAllowed wo)
 
@@ -141,19 +142,23 @@ data Env
 emptyEnv :: Env
 emptyEnv = Env [] emptyFunInfo CaAllowed WoRead
 
-writePathAnalysis :: forall a. Show a => Expr a -> Env -> WriteTarget
+-- For now, just monadic. But error handling will
+-- follow
+type AnalysisM m = Monad m
+
+writePathAnalysis :: forall a m. (AnalysisM m, Show a) => Expr a -> Env -> m WriteTarget
 writePathAnalysis expr env =
     case expr of
-      ELit _ -> WtPrim PwtNone -- ill typed
-      EList _ -> WtPrim PwtNone -- ill typed
-      EBinOp _ -> WtPrim PwtNone -- ill typed
+      ELit _ -> pure $ WtPrim PwtNone -- ill typed
+      EList _ -> pure $ WtPrim PwtNone -- ill typed
+      EBinOp _ -> pure $ WtPrim PwtNone -- ill typed
       ELambda (Annotated _ (Lambda _ body)) ->
           -- TODO: is this correct? Probably need to remove the targets
           -- that the arguments already handle.
           writePathAnalysis body env
-      ERecord _ -> WtPrim PwtNone -- don't care
+      ERecord _ -> pure $ WtPrim PwtNone -- don't care
       EVar (Annotated _ var) ->
-          WtPrim (PwtVar var (e_pathTraversed env) (e_copyAllowed env) (e_writeOccured env))
+          pure $ WtPrim (PwtVar var (e_pathTraversed env) (e_copyAllowed env) (e_writeOccured env))
       ERecordMerge (Annotated _ (RecordMerge tgt _ noCopy)) ->
           writePathAnalysis tgt $
           env
@@ -163,67 +168,73 @@ writePathAnalysis expr env =
       ERecordAccess (Annotated _ (RecordAccess r rk)) ->
           writePathAnalysis r $ env { e_pathTraversed = e_pathTraversed env ++ [rk] }
       EIf (Annotated _ (If bodies elseExpr)) ->
-          let exprs = fmap snd bodies ++ [elseExpr]
-          in packMany $ fmap (\e -> writePathAnalysis e env) exprs
+          do let exprs = fmap snd bodies ++ [elseExpr]
+             packMany <$> mapM (\e -> writePathAnalysis e env) exprs
       ECase (Annotated _ (Case _ cases)) ->
-          let exprs = fmap snd cases
-          in packMany $ fmap (\e -> writePathAnalysis e env) exprs
+          do let exprs = fmap snd cases
+             packMany <$> mapM (\e -> writePathAnalysis e env) exprs
       EFunApp (Annotated _ (FunApp rcvE args)) ->
-          case getFunType rcvE (e_funInfo env) of
-            Nothing -> error ("Can't call function")
-            Just FtSelf -> WtPrim PwtNone -- don't care about writes to self
+          getFunType rcvE (e_funInfo env) >>= \funType ->
+          case funType of
+            Nothing -> error "Can't call function"
+            Just FtSelf -> pure $ WtPrim PwtNone -- don't care about writes to self
             Just (FtFun ft) -> funWriteThrough ft args (e_funInfo env)
             Just (FtRec r) -> error ("IMPLEMENT ME" ++ show r)
       ELet (Annotated _ (Let (Annotated _ var) bindE inE)) ->
-          let tempFunInfo =
-                  FunInfo $ HM.insert var FtSelf (unFunInfo $ e_funInfo env)
-              funInfo' =
-                  case getFunType bindE tempFunInfo of
-                    Nothing -> e_funInfo env
-                    Just fi -> FunInfo $ HM.insert var fi (unFunInfo $ e_funInfo env)
-              bindWt =
-                  -- TODO: this seems incorrect.
-                  writePathAnalysis bindE $ env { e_funInfo = funInfo' }
-              res =
-                  handleLetTarget var bindE (e_pathTraversed env) [] funInfo' $
-                  writePathAnalysis inE $ env { e_funInfo = funInfo' }
-          in case res of
+          do let tempFunInfo =
+                     FunInfo $ HM.insert var FtSelf (unFunInfo $ e_funInfo env)
+             funInfo' <-
+                 getFunType bindE tempFunInfo >>= \funType ->
+                 case funType of
+                   Nothing -> pure $ e_funInfo env
+                   Just fi -> pure $ FunInfo $ HM.insert var fi (unFunInfo $ e_funInfo env)
+             bindWt <-
+                 -- TODO: this seems incorrect.
+                 writePathAnalysis bindE $ env { e_funInfo = funInfo' }
+             res <-
+                 do inRes <- writePathAnalysis inE $ env { e_funInfo = funInfo' }
+                    handleLetTarget var bindE (e_pathTraversed env) [] funInfo' inRes
+             pure $ case res of
                WtPrim PwtNone -> bindWt
                _ | not (hadWrite res) && hadWrite bindWt -> bindWt
                _ -> res
 
 handleLetTarget ::
-    Show a => Var -> Expr a -> [RecordKey] -> [RecordKey] -> FunInfo -> WriteTarget -> WriteTarget
+    (AnalysisM m, Show a)
+    => Var -> Expr a -> [RecordKey] -> [RecordKey] -> FunInfo -> WriteTarget -> m WriteTarget
 handleLetTarget var bindE pathTraversed pExtra funInfo wtarget =
     case wtarget of
       WtPrim (PwtVar v recordPath ca wo) | v == var ->
-        case writePathAnalysis bindE (Env pathTraversed funInfo ca wo) of
+        writePathAnalysis bindE (Env pathTraversed funInfo ca wo) >>= \wpRes ->
+        case wpRes of
           WtPrim (PwtVar v2 rp2 ca2 wo2) ->
-              WtPrim (PwtVar v2 (rp2 <> recordPath) ca2 wo2)
+              pure $ WtPrim (PwtVar v2 (rp2 <> recordPath) ca2 wo2)
           WtMany wTargets ->
-              packMany (fmap (handleLetTarget var bindE pathTraversed recordPath funInfo . WtPrim) wTargets)
-          z -> z
-      WtPrim (PwtVar v rp x y) -> WtPrim (PwtVar v (rp <> pExtra) x y)
-      WtPrim PwtNone -> WtPrim PwtNone
+              packMany <$> mapM (handleLetTarget var bindE pathTraversed recordPath funInfo . WtPrim) wTargets
+          z -> pure z
+      WtPrim (PwtVar v rp x y) ->
+          pure $ WtPrim (PwtVar v (rp <> pExtra) x y)
+      WtPrim PwtNone ->
+          pure $ WtPrim PwtNone
       WtMany wTargets ->
-          packMany $ fmap (handleLetTarget var bindE pathTraversed pExtra funInfo . WtPrim) wTargets
+          packMany <$> mapM (handleLetTarget var bindE pathTraversed pExtra funInfo . WtPrim) wTargets
 
 -- | Given a lambda, infer which arguments
 -- would need to be considered written if the result is written
 argumentDependency ::
-    Show a
+    (AnalysisM m, Show a)
     => FunInfo
     -> Lambda a
-    -> [Maybe (Var, [RecordKey], CopyAllowed, WriteOccured)]
+    -> m [Maybe (Var, [RecordKey], CopyAllowed, WriteOccured)]
 argumentDependency funInfo (Lambda args body) =
-    fmap (makeEntry . a_value) args
+    do targets <-
+           handleTarget <$> writePathAnalysis body (Env [] funInfo CaAllowed WoRead)
+       pure $ fmap (makeEntry targets . a_value) args
     where
-      makeEntry var =
+      makeEntry targets var =
           case filter (\(v, _, _, _) -> v == var) targets of
             [x] -> Just x
             _ -> Nothing
-      targets =
-          handleTarget $ writePathAnalysis body (Env [] funInfo CaAllowed WoRead)
       relevantVars = S.fromList $ fmap a_value args
       handleTarget wt =
           case wt of
