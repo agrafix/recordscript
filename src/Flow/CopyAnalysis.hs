@@ -5,6 +5,8 @@ module Flow.CopyAnalysis
     , WriteTarget(..), PrimitiveWriteTarget(..)
     , CopyAllowed(..), WriteOccured(..)
     , argumentDependency
+    , Error(..), ErrorMessage(..), prettyCopyError, prettyErrorMessage
+    , runAnalysisM
     )
 where
 
@@ -12,10 +14,42 @@ import Types.Annotation
 import Types.Ast
 import Types.Common
 
-import Data.List (foldl')
+import Control.Monad.Except
+import Data.Bifunctor
+import Data.List (foldl', sortOn)
+import Data.Maybe
 import Data.Monoid
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as S
+import qualified Data.Text as T
+
+data Error
+    = Error
+    { e_pos :: Pos
+    , e_error :: ErrorMessage
+    } deriving (Eq, Ord, Show)
+
+prettyCopyError :: Error -> T.Text
+prettyCopyError e =
+    "Error on " <> T.pack (show $ e_pos e) <> ": \n"
+    <> prettyErrorMessage (e_error e)
+
+data ErrorMessage
+    = ECantCopy Var [RecordKey]
+    deriving (Eq, Ord, Show)
+
+prettyErrorMessage :: ErrorMessage -> T.Text
+prettyErrorMessage em =
+    case em of
+      ECantCopy (Var v) keys ->
+          "Can not copy " <> v <> keyPath keys
+    where
+      keyPath ks =
+          "." <> T.intercalate "." (map unRecordKey ks)
+
+type AnalysisM m = MonadError Error m
+runAnalysisM :: ExceptT Error m a -> m (Either Error a)
+runAnalysisM = runExceptT
 
 data CopyAllowed
     = CaAllowed
@@ -36,6 +70,108 @@ data WriteTarget
     = WtPrim PrimitiveWriteTarget
     | WtMany [PrimitiveWriteTarget]
     deriving (Show, Eq)
+
+data CopySide
+    = CsLeft
+    | CsRight
+    deriving (Show, Eq)
+
+data CopyAction
+    = CopyAction
+    { _ca_var :: Var
+    , _ca_path :: [RecordKey]
+    , _ca_side :: CopySide
+    } deriving (Show, Eq)
+
+joinWritePaths :: AnalysisM m => Pos -> WriteTarget -> WriteTarget -> m (WriteTarget, [CopyAction])
+joinWritePaths pos w1 w2 =
+    case (w1, w2) of
+      (WtPrim PwtNone, x) -> pure (x, mempty)
+      (x, WtPrim PwtNone) -> pure (x, mempty)
+      (WtPrim x, WtPrim y) -> first (packMany . map WtPrim) <$> handleTargets pos [x] [y]
+      (WtPrim x, WtMany y) -> first (packMany . map WtPrim) <$> handleTargets pos [x] y
+      (WtMany x, WtPrim y) -> first (packMany . map WtPrim) <$> handleTargets pos x [y]
+      (WtMany x, WtMany y) -> first (packMany . map WtPrim) <$> handleTargets pos x y
+
+type TargetTuple = (Var, [RecordKey], CopyAllowed, WriteOccured)
+
+shortestVarPath :: [TargetTuple] -> Maybe TargetTuple
+shortestVarPath tts =
+    case sortOn (\(_, rks, _, _) -> length rks) tts of
+      [] -> Nothing
+      (t : _) -> Just t
+
+copyActionGen :: Bool -> [TargetTuple] -> CopySide -> Maybe CopyAction
+copyActionGen needsWrite tts cs =
+    fmap mkCopy $ propagationVal needsWrite tts
+    where
+      mkCopy (v, rks, _, _) =
+          CopyAction v rks cs
+
+propagationVal :: Bool -> [TargetTuple] -> Maybe TargetTuple
+propagationVal needsWrite tts =
+    shortestVarPath $ if needsWrite then filter writes tts else tts
+
+writes :: TargetTuple -> Bool
+writes (_, _, _, wo) = wo == WoWrite
+
+handleTargets ::
+    forall m. AnalysisM m
+    => Pos
+    -> [PrimitiveWriteTarget]
+    -> [PrimitiveWriteTarget]
+    -> m ([PrimitiveWriteTarget], [CopyAction])
+handleTargets pos lhs rhs =
+    do let folder hm pwt =
+               case pwt of
+                 PwtNone -> hm
+                 PwtVar x rk ca wo -> HM.insertWith (++) x [(x, rk, ca, wo)] hm
+           makeByVar = foldl' folder mempty
+           byVar =
+               let l = HM.map (\x -> (x, mempty)) $ makeByVar lhs
+                   r = HM.map (\x -> (mempty, x)) $ makeByVar rhs
+               in HM.elems $ HM.unionWith (\(a, b) (x, y) -> (a ++ x, b ++ y)) l r
+           repack (x, rk, ca, wo) = PwtVar x rk ca wo
+           allowsCopy (_, _, ca, _) = ca == CaAllowed
+           propAny r = maybeToList $ propagationVal False r
+           handlePair ::
+               ([TargetTuple], [CopyAction])
+               -> ([TargetTuple], [TargetTuple])
+               -> m ([TargetTuple], [CopyAction])
+           handlePair (writeTargets, copyActions) p =
+               case p of
+                 (l, []) -> pure (writeTargets ++ propAny l,  copyActions)
+                 ([], r) -> pure (writeTargets ++ propAny r, copyActions)
+                 (l, r)
+                     | all (not . writes) l ->
+                       do let interestingR = propAny r
+                          pure
+                              ( writeTargets ++ interestingR
+                              , copyActions
+                              )
+                     | otherwise ->
+                           do let canCopyL = all allowsCopy l
+                                  canCopyR = all allowsCopy r
+                                  writesL = any writes l
+                                  writesR = any writes r
+                                  (var, rks, _, _) =
+                                      fromJust $
+                                      propagationVal True (l ++ r)
+                              case (canCopyL, canCopyR) of
+                                (False, False) ->
+                                    throwError $ Error pos $ ECantCopy var rks
+                                (True, _) ->
+                                    pure
+                                        ( writeTargets ++ maybeToList (propagationVal writesR r)
+                                        , copyActions ++ maybeToList (copyActionGen writesL l CsLeft)
+                                        )
+                                (_, True) ->
+                                    pure
+                                        ( writeTargets ++ maybeToList (propagationVal writesL l)
+                                        , copyActions ++ maybeToList (copyActionGen writesR r CsRight)
+                                        )
+
+       first (map repack) <$> foldM handlePair (mempty, mempty) byVar
 
 hadWrite :: WriteTarget -> Bool
 hadWrite wt =
@@ -95,7 +231,7 @@ pathLookup =
                         Nothing -> Nothing
                         Just fty -> go xs fty
 
-getFunType :: (AnalysisM m, Show a) => Expr a -> FunInfo -> m (Maybe FunType)
+getFunType :: AnalysisM m => Expr TypedPos -> FunInfo -> m (Maybe FunType)
 getFunType expr funInfo =
     case expr of
       ELambda (Annotated _ lambda) -> Just . FtFun <$> argumentDependency funInfo lambda
@@ -112,9 +248,9 @@ getFunType expr funInfo =
       _ -> pure Nothing -- TODO: is this right??
 
 funWriteThrough ::
-    forall m a. (AnalysisM m, Show a)
+    forall m. AnalysisM m
     => [Maybe (Var, [RecordKey], CopyAllowed, WriteOccured)]
-    -> [Expr a]
+    -> [Expr TypedPos]
     -> FunInfo
     -> m WriteTarget
 funWriteThrough funType args funInfo =
@@ -122,7 +258,7 @@ funWriteThrough funType args funInfo =
     where
       makeTarget ::
           Maybe (Var, [RecordKey], CopyAllowed, WriteOccured)
-          -> Expr a
+          -> Expr TypedPos
           -> m WriteTarget
       makeTarget mArgTy arg =
           case mArgTy of
@@ -142,16 +278,22 @@ data Env
 emptyEnv :: Env
 emptyEnv = Env [] emptyFunInfo CaAllowed WoRead
 
--- For now, just monadic. But error handling will
--- follow
-type AnalysisM m = Monad m
+handleBinOp :: AnalysisM m => Env -> TypedPos -> BinOp TypedPos -> m WriteTarget
+handleBinOp env (TypedPos pos _) bo =
+    case bo of
+      BoAdd x y ->
+          do lhs <- writePathAnalysis x env
+             rhs <- writePathAnalysis y env
+             fst <$> joinWritePaths pos lhs rhs -- TODO
+      _ -> error "Undefined" -- TODO
 
-writePathAnalysis :: forall a m. (AnalysisM m, Show a) => Expr a -> Env -> m WriteTarget
+writePathAnalysis :: forall m. AnalysisM m => Expr TypedPos -> Env -> m WriteTarget
 writePathAnalysis expr env =
     case expr of
       ELit _ -> pure $ WtPrim PwtNone -- ill typed
       EList _ -> pure $ WtPrim PwtNone -- ill typed
-      EBinOp _ -> pure $ WtPrim PwtNone -- ill typed
+      EBinOp (Annotated pos bo) ->
+          handleBinOp env pos bo
       ELambda (Annotated _ (Lambda _ body)) ->
           -- TODO: is this correct? Probably need to remove the targets
           -- that the arguments already handle.
@@ -200,8 +342,8 @@ writePathAnalysis expr env =
                _ -> res
 
 handleLetTarget ::
-    (AnalysisM m, Show a)
-    => Var -> Expr a -> [RecordKey] -> [RecordKey] -> FunInfo -> WriteTarget -> m WriteTarget
+    AnalysisM m
+    => Var -> Expr TypedPos -> [RecordKey] -> [RecordKey] -> FunInfo -> WriteTarget -> m WriteTarget
 handleLetTarget var bindE pathTraversed pExtra funInfo wtarget =
     case wtarget of
       WtPrim (PwtVar v recordPath ca wo) | v == var ->
@@ -222,9 +364,9 @@ handleLetTarget var bindE pathTraversed pExtra funInfo wtarget =
 -- | Given a lambda, infer which arguments
 -- would need to be considered written if the result is written
 argumentDependency ::
-    (AnalysisM m, Show a)
+    AnalysisM m
     => FunInfo
-    -> Lambda a
+    -> Lambda TypedPos
     -> m [Maybe (Var, [RecordKey], CopyAllowed, WriteOccured)]
 argumentDependency funInfo (Lambda args body) =
     do targets <-

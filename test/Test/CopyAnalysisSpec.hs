@@ -65,8 +65,12 @@ withTcExpr what dir go =
 makeWriteTargetTests :: SpecWith ()
 makeWriteTargetTests =
     withTcExpr "write target" "testcode/write-target/expr" $ \(expectedWriteTarget, typedExpr) ->
-    (prettyWriteTarget $ runIdentity $ writePathAnalysis typedExpr emptyEnv) `shouldBe`
-    expectedWriteTarget
+    do let result = runIdentity $ runAnalysisM $ writePathAnalysis typedExpr emptyEnv
+       case result of
+         Left err ->
+             expectationFailure $
+             T.unpack $ prettyCopyError err
+         Right ok -> prettyWriteTarget ok `shouldBe` expectedWriteTarget
 
 prettyArgDep :: [(Var, [RecordKey], CopyAllowed, WriteOccured)] -> T.Text
 prettyArgDep x =
@@ -91,7 +95,13 @@ makeArgDepTests =
     withTcExpr "write target" "testcode/arg-dep/expr" $ \(expected, typedExpr) ->
     case typedExpr of
       ELambda (Annotated _ l) ->
-          prettyArgDep (catMaybes $ runIdentity $ argumentDependency emptyFunInfo l) `shouldBe` expected
+          do let result = runIdentity $ runAnalysisM $ argumentDependency emptyFunInfo l
+             case result of
+               Left err ->
+                   expectationFailure $
+                   T.unpack $ prettyCopyError err
+               Right ok ->
+                   prettyArgDep (catMaybes ok) `shouldBe` expected
       _ ->
           expectationFailure $
           "Bad expression: " <> show typedExpr
