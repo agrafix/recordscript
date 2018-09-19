@@ -6,6 +6,7 @@ import Parser.Expr
 import Parser.Shared
 import Pretty.Types
 import TypeCheck.InferExpr
+import Types.Ast
 
 import Control.Monad
 import Data.Bifunctor

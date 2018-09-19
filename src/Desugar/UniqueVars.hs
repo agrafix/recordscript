@@ -73,6 +73,7 @@ runUniquify :: (Show a, UniqueM m) => Expr a -> m (Expr a)
 runUniquify expr =
     case expr of
       ELit _ -> pure expr
+      ECopy e' -> ECopy <$> runUniquify e'
       EVar v -> EVar <$> mapMA uniquify v
       EBinOp bo ->
           fmap EBinOp $ mapMA doBinOp bo

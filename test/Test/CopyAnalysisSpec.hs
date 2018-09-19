@@ -65,7 +65,7 @@ withTcExpr what dir go =
 makeWriteTargetTests :: SpecWith ()
 makeWriteTargetTests =
     withTcExpr "write target" "testcode/write-target/expr" $ \(expectedWriteTarget, typedExpr) ->
-    do let result = runIdentity $ runAnalysisM $ writePathAnalysis typedExpr emptyEnv
+    do let result = runAnalysisM $ writePathAnalysis typedExpr emptyEnv
        case result of
          Left err ->
              expectationFailure $
@@ -95,7 +95,7 @@ makeArgDepTests =
     withTcExpr "write target" "testcode/arg-dep/expr" $ \(expected, typedExpr) ->
     case typedExpr of
       ELambda (Annotated _ l) ->
-          do let result = runIdentity $ runAnalysisM $ argumentDependency emptyFunInfo l
+          do let result = runAnalysisM $ argumentDependency emptyFunInfo l
              case result of
                Left err ->
                    expectationFailure $

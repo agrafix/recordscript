@@ -25,6 +25,7 @@ prettyExpr e =
       EFunApp (Annotated _ eFunApp) -> prettyFunApp eFunApp
       ECase (Annotated _ eCase) -> prettyCase eCase
       EBinOp (Annotated _ eBinOp) -> prettyBinOp eBinOp
+      ECopy e' -> "!<" <> prettyExpr e' <> ">"
 
 prettyIf :: If a -> T.Text
 prettyIf i =

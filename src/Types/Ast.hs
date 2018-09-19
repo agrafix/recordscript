@@ -4,6 +4,7 @@ module Types.Ast where
 
 import Types.Annotation
 import Types.Common
+import Types.Types
 
 import Data.Data
 import Data.Hashable
@@ -98,4 +99,25 @@ data Expr a
     | EFunApp (WithA a FunApp)
     | ECase (WithA a Case)
     | EBinOp (WithA a BinOp)
+    | ECopy (Expr a)
     deriving (Eq, Ord, Show, Generic, Data, Typeable)
+
+getExprAnn :: Expr a -> a
+getExprAnn expr =
+    case expr of
+      ELit (Annotated x _) -> x
+      EVar (Annotated x _) -> x
+      EList (Annotated x _) -> x
+      ERecord (Annotated x _) -> x
+      ERecordMerge (Annotated x _) -> x
+      ERecordAccess (Annotated x _) -> x
+      EIf (Annotated x _) -> x
+      ELet (Annotated x _) -> x
+      ELambda (Annotated x _) -> x
+      EFunApp (Annotated x _) -> x
+      ECase (Annotated x _) -> x
+      EBinOp (Annotated x _) -> x
+      ECopy e -> getExprAnn e
+
+getExprType :: Expr TypedPos -> Type
+getExprType = tp_type . getExprAnn

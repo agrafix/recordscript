@@ -13,9 +13,12 @@ where
 import Types.Annotation
 import Types.Ast
 import Types.Common
+import Types.Types
 
 import Control.Monad.Except
+import Control.Monad.State
 import Data.Bifunctor
+import Data.Functor.Identity
 import Data.List (foldl', sortOn)
 import Data.Maybe
 import Data.Monoid
@@ -47,9 +50,23 @@ prettyErrorMessage em =
       keyPath ks =
           "." <> T.intercalate "." (map unRecordKey ks)
 
-type AnalysisM m = MonadError Error m
-runAnalysisM :: ExceptT Error m a -> m (Either Error a)
-runAnalysisM = runExceptT
+data AnalysisState
+    = AnalysisState
+    { as_varSupply :: Int
+    } deriving (Show, Eq, Ord)
+
+initAnalysisState :: AnalysisState
+initAnalysisState = AnalysisState 0
+
+freshVar :: AnalysisM m => m Var
+freshVar =
+    do s <- get
+       put $ s { as_varSupply = as_varSupply s + 1 }
+       pure $ Var $ T.pack $ "internal" ++ (show $ as_varSupply s)
+
+type AnalysisM m = (MonadError Error m, MonadState AnalysisState m)
+runAnalysisM :: ExceptT Error (StateT AnalysisState Identity) a -> Either Error a
+runAnalysisM action = runIdentity $ evalStateT (runExceptT action) initAnalysisState
 
 data CopyAllowed
     = CaAllowed
@@ -78,10 +95,59 @@ data CopySide
 
 data CopyAction
     = CopyAction
-    { _ca_var :: Var
-    , _ca_path :: [RecordKey]
-    , _ca_side :: CopySide
+    { ca_var :: Var
+    , ca_path :: [RecordKey]
+    , ca_side :: CopySide
     } deriving (Show, Eq)
+
+makeAccessExpr :: Pos -> CopyAction -> Expr TypedPos
+makeAccessExpr pos ca =
+    injectPath (ca_path ca) $ EVar (Annotated ann (ca_var ca))
+    where
+      ann = TypedPos pos t
+      t = TVar (TypeVar "<unknown>")
+      injectPath remaining inner =
+          case remaining of
+            [] -> inner
+            (rk:more) ->
+                injectPath more $
+                ERecordAccess $ Annotated ann $
+                RecordAccess inner rk
+
+applyCopyActions :: AnalysisM m => [CopyAction] -> Expr TypedPos -> Expr TypedPos -> m (Expr TypedPos, Expr TypedPos)
+applyCopyActions cas lhs rhs =
+    loop cas lhs rhs
+    where
+      loop actions l r =
+          case actions of
+            [] -> pure (l, r)
+            (ca:more) ->
+                do (l', r') <- applyCopyAction ca l r
+                   loop more l' r'
+
+applyCopyAction :: AnalysisM m => CopyAction -> Expr TypedPos -> Expr TypedPos -> m (Expr TypedPos, Expr TypedPos)
+applyCopyAction ca lhs rhs =
+    case ca_side ca of
+      CsLeft ->
+          do lhs' <- applySingleCopyAction ca lhs
+             pure (lhs', rhs)
+      CsRight ->
+          do rhs' <- applySingleCopyAction ca rhs
+             pure (lhs, rhs')
+
+applySingleCopyAction :: AnalysisM m => CopyAction -> Expr TypedPos -> m (Expr TypedPos)
+applySingleCopyAction ca expr =
+    do bindVar <- freshVar
+       let exprAnn = getExprAnn expr
+           pos = tp_pos exprAnn
+           ann = TypedPos pos (TVar (TypeVar "<unknown>"))
+           boundVar =
+               Annotated ann bindVar
+           boundExpr =
+               ECopy $ makeAccessExpr pos ca
+       pure $
+           ELet $ Annotated exprAnn $
+           Let boundVar boundExpr expr -- TODO actually use the introduced copy
 
 joinWritePaths :: AnalysisM m => Pos -> WriteTarget -> WriteTarget -> m (WriteTarget, [CopyAction])
 joinWritePaths pos w1 w2 =
@@ -278,22 +344,25 @@ data Env
 emptyEnv :: Env
 emptyEnv = Env [] emptyFunInfo CaAllowed WoRead
 
-handleBinOp :: AnalysisM m => Env -> TypedPos -> BinOp TypedPos -> m WriteTarget
+handleBinOp :: AnalysisM m => Env -> TypedPos -> BinOp TypedPos -> m (WriteTarget, BinOp TypedPos)
 handleBinOp env (TypedPos pos _) bo =
     case bo of
       BoAdd x y ->
           do lhs <- writePathAnalysis x env
              rhs <- writePathAnalysis y env
-             fst <$> joinWritePaths pos lhs rhs -- TODO
+             (writeTarget, copyActions) <- joinWritePaths pos lhs rhs
+             (l, r) <- applyCopyActions copyActions x y
+             pure (writeTarget, BoAdd l r)
       _ -> error "Undefined" -- TODO
 
 writePathAnalysis :: forall m. AnalysisM m => Expr TypedPos -> Env -> m WriteTarget
 writePathAnalysis expr env =
     case expr of
+      ECopy _ -> pure $ WtPrim PwtNone -- should never happen
       ELit _ -> pure $ WtPrim PwtNone -- ill typed
       EList _ -> pure $ WtPrim PwtNone -- ill typed
       EBinOp (Annotated pos bo) ->
-          handleBinOp env pos bo
+          fst <$> handleBinOp env pos bo -- TODO
       ELambda (Annotated _ (Lambda _ body)) ->
           -- TODO: is this correct? Probably need to remove the targets
           -- that the arguments already handle.

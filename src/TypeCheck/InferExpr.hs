@@ -126,7 +126,6 @@ resolvePass e infState =
       mp = ctx_equivMap $ is_context infState
       resolveType (TypedPos pos ty) = TypedPos pos (resolveTypeVars ty mp)
 
--- TODO: note that final pass through the AST assigning all variables is missing
 runInferM :: StateT InferState (ExceptT Error m) a -> m (Either Error (a, InferState))
 runInferM go =
     runExceptT $ runStateT go initSt
@@ -299,22 +298,6 @@ inferList pos types =
           do elType <-
                  foldM (\resTy localTy -> unifyTypes pos resTy localTy) x xs
              pure $ N.tList elType
-
-getExprType :: Expr TypedPos -> Type
-getExprType expr =
-    case expr of
-      ELit (Annotated x _) -> tp_type x
-      EVar (Annotated x _) -> tp_type x
-      EList (Annotated x _) -> tp_type x
-      ERecord (Annotated x _) -> tp_type x
-      ERecordMerge (Annotated x _) -> tp_type x
-      ERecordAccess (Annotated x _) -> tp_type x
-      EIf (Annotated x _) -> tp_type x
-      ELet (Annotated x _) -> tp_type x
-      ELambda (Annotated x _) -> tp_type x
-      EFunApp (Annotated x _) -> tp_type x
-      ECase (Annotated x _) -> tp_type x
-      EBinOp (Annotated x _) -> tp_type x
 
 getRecordType :: Record (Expr TypedPos) -> Record Type
 getRecordType (Record hm) =
@@ -555,6 +538,8 @@ inferBinOp pos bo =
 inferExpr :: InferM m => Expr Pos -> m (Expr TypedPos)
 inferExpr expr =
     case expr of
+      ECopy e' ->
+          ECopy <$> inferExpr e'
       ELit (Annotated p lit) ->
           do let litType = inferLiteral lit
              pure $ ELit (Annotated (TypedPos p litType) lit)
