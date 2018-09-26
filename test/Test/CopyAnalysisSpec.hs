@@ -5,6 +5,7 @@ import Test.Helpers
 
 import Parser.Expr
 import Parser.Shared
+--import Pretty.Expr
 import TypeCheck.InferExpr
 import Types.Annotation
 import Types.Ast
@@ -70,7 +71,12 @@ makeWriteTargetTests =
          Left err ->
              expectationFailure $
              T.unpack $ prettyCopyError err
-         Right ok -> prettyWriteTarget ok `shouldBe` expectedWriteTarget
+         Right (wt, _expr) ->
+             let printedExpr = ""
+                     --if expr /= typedExpr
+                     --then "\n=====\n" <> prettyExpr expr
+                     --else ""
+             in (prettyWriteTarget wt <> printedExpr) `shouldBe` expectedWriteTarget
 
 prettyArgDep :: [(Var, [RecordKey], CopyAllowed, WriteOccured)] -> T.Text
 prettyArgDep x =
