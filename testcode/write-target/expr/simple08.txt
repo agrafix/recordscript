@@ -1,0 +1,1 @@
+Error on Pos {p_file = "testcode/write-target/expr/simple08.rcs", p_line = Just 1, p_column = Just 18}: Can not copy foo.

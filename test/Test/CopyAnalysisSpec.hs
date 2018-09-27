@@ -69,8 +69,7 @@ makeWriteTargetTests =
     do let result = runAnalysisM $ writePathAnalysis typedExpr emptyEnv
        case result of
          Left err ->
-             expectationFailure $
-             T.unpack $ prettyCopyError err
+             T.replace "\n" "" (prettyCopyError err) `shouldBe` expectedWriteTarget
          Right (wt, expr) ->
              let printedExpr =
                      if expr /= typedExpr
