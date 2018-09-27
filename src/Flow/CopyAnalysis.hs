@@ -117,28 +117,33 @@ makeAccessExpr pos ca =
                 ERecordAccess $ Annotated ann $
                 RecordAccess inner rk
 
-applyCopyActions :: AnalysisM m => [CopyAction] -> Expr TypedPos -> Expr TypedPos -> m (Expr TypedPos, Expr TypedPos)
+applyCopyActions ::
+    AnalysisM m => [CopyAction] -> Expr TypedPos -> Expr TypedPos
+    -> m (Expr TypedPos -> Expr TypedPos, Expr TypedPos, Expr TypedPos)
 applyCopyActions cas lhs rhs =
-    loop cas lhs rhs
+    loop cas id lhs rhs
     where
-      loop actions l r =
+      loop actions bind l r =
           case actions of
-            [] -> pure (l, r)
+            [] -> pure (bind, l, r)
             (ca:more) ->
-                do (l', r') <- applyCopyAction ca l r
-                   loop more l' r'
+                do (bind', l', r') <- applyCopyAction ca l r
+                   loop more (bind . bind') l' r'
 
-applyCopyAction :: AnalysisM m => CopyAction -> Expr TypedPos -> Expr TypedPos -> m (Expr TypedPos, Expr TypedPos)
+applyCopyAction ::
+    AnalysisM m => CopyAction -> Expr TypedPos -> Expr TypedPos
+    -> m (Expr TypedPos -> Expr TypedPos, Expr TypedPos, Expr TypedPos)
 applyCopyAction ca lhs rhs =
     case ca_side ca of
       CsLeft ->
-          do lhs' <- applySingleCopyAction ca lhs
-             pure (lhs', rhs)
+          do (bind, lhs') <- applySingleCopyAction ca lhs
+             pure (bind, lhs', rhs)
       CsRight ->
-          do rhs' <- applySingleCopyAction ca rhs
-             pure (lhs, rhs')
+          do (bind, rhs') <- applySingleCopyAction ca rhs
+             pure (bind, lhs, rhs')
 
-applySingleCopyAction :: AnalysisM m => CopyAction -> Expr TypedPos -> m (Expr TypedPos)
+applySingleCopyAction ::
+    AnalysisM m => CopyAction -> Expr TypedPos -> m (Expr TypedPos -> Expr TypedPos, Expr TypedPos)
 applySingleCopyAction ca expr =
     do bindVar <- freshVar
        let exprAnn = getExprAnn expr
@@ -160,9 +165,9 @@ applySingleCopyAction ca expr =
                in if trace ("clobbered=" ++ show clobbered ++ " search=" ++ show clobberedSearch) (clobbered == clobberedSearch)
                   then replaceExpr
                   else e
-       pure $
-           ELet $ Annotated exprAnn $
-           Let boundVar boundExpr $ G.everywhere (G.mkT execReplace) expr
+       let bind x =
+               ELet $ Annotated exprAnn $ Let boundVar boundExpr x
+       pure (bind, G.everywhere (G.mkT execReplace) expr)
 
 joinWritePaths :: AnalysisM m => Pos -> WriteTarget -> WriteTarget -> m (WriteTarget, [CopyAction])
 joinWritePaths pos w1 w2 =
@@ -349,20 +354,28 @@ data Env
 emptyEnv :: Env
 emptyEnv = Env [] emptyFunInfo CaAllowed WoRead
 
-handleBinOp :: AnalysisM m => Env -> TypedPos -> BinOp TypedPos -> m (WriteTarget, BinOp TypedPos)
-handleBinOp env (TypedPos pos _) bo =
+handleBinOp :: AnalysisM m => Env -> TypedPos -> BinOp TypedPos -> m (WriteTarget, Expr TypedPos)
+handleBinOp env tp@(TypedPos pos _) bo =
     case bo of
-      BoAdd x y ->
+      BoAdd x y -> handleBo BoAdd x y
+      BoSub x y -> handleBo BoSub x y
+      BoMul x y -> handleBo BoMul x y
+      BoDiv x y -> handleBo BoDiv x y
+      BoEq x y -> handleBo BoEq x y
+      BoNeq x y -> handleBo BoNeq x y
+      BoAnd x y -> handleBo BoAnd x y
+      BoOr x y -> handleBo BoOr x y
+      BoNot e ->
+          do (wt, e') <- writePathAnalysis e env
+             pure (wt, addA $ BoNot e')
+    where
+      addA = EBinOp . Annotated tp
+      handleBo c x y =
           do (lhs, le) <- writePathAnalysis x env
              (rhs, re) <- writePathAnalysis y env
              (writeTarget, copyActions) <- joinWritePaths pos lhs rhs
-             (l, r) <-
-                 trace ("Joined " ++ show (lhs, rhs) ++ " to " ++ show writeTarget ++ ". Actions=" ++ show copyActions) $
-                 applyCopyActions copyActions le re
-             pure $
-                 trace ("l=" ++ show l ++ " r=" ++ show r)
-                 (writeTarget, BoAdd l r)
-      _ -> error "Undefined" -- TODO
+             (bind, l, r) <- applyCopyActions copyActions le re
+             pure (writeTarget, bind $ addA (c l r))
 
 writePathAnalysis ::
     forall m. AnalysisM m
@@ -375,7 +388,7 @@ writePathAnalysis expr env =
       EList _ -> pure $ unchanged $ WtPrim PwtNone -- ill typed
       EBinOp (Annotated pos bo) ->
           do (wt, bo') <- handleBinOp env pos bo
-             pure (wt, EBinOp (Annotated pos bo'))
+             pure (wt, bo')
       ELambda (Annotated ann (Lambda args body)) ->
           -- TODO: is this correct? Probably need to remove the targets
           -- that the arguments already handle.

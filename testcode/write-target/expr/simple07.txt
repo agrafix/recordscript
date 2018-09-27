@@ -1,0 +1,3 @@
+#!foo
+=====
+let internal0 = !<foo.x>;({ ...!foo, ...{x: 5}}.x + internal0)
