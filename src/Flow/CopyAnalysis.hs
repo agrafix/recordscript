@@ -22,6 +22,7 @@ import Data.Functor.Identity
 import Data.List (foldl', sortOn, nub)
 import Data.Maybe
 import Data.Monoid
+import qualified Data.Generics as G
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as S
 import qualified Data.Text as T
@@ -146,10 +147,22 @@ applySingleCopyAction ca expr =
            boundVar =
                Annotated ann bindVar
            boundExpr =
-               ECopy $ makeAccessExpr pos ca
+               ECopy searchExpr
+           searchExpr = makeAccessExpr pos ca
+           replaceExpr = EVar boundVar
+           clobberAnnotation :: Expr TypedPos -> Expr TypedPos
+           clobberAnnotation e =
+               let clobber (TypedPos _ _) = ann
+               in G.everywhere (G.mkT clobber) e
+           clobberedSearch = clobberAnnotation searchExpr
+           execReplace e =
+               let clobbered = clobberAnnotation e
+               in if trace ("clobbered=" ++ show clobbered ++ " search=" ++ show clobberedSearch) (clobbered == clobberedSearch)
+                  then replaceExpr
+                  else e
        pure $
            ELet $ Annotated exprAnn $
-           Let boundVar boundExpr expr -- TODO actually use the introduced copy
+           Let boundVar boundExpr $ G.everywhere (G.mkT execReplace) expr
 
 joinWritePaths :: AnalysisM m => Pos -> WriteTarget -> WriteTarget -> m (WriteTarget, [CopyAction])
 joinWritePaths pos w1 w2 =
@@ -344,9 +357,11 @@ handleBinOp env (TypedPos pos _) bo =
              (rhs, re) <- writePathAnalysis y env
              (writeTarget, copyActions) <- joinWritePaths pos lhs rhs
              (l, r) <-
-                 trace ("Joined " ++ show (lhs, rhs) ++ " to " ++ show writeTarget) $
+                 trace ("Joined " ++ show (lhs, rhs) ++ " to " ++ show writeTarget ++ ". Actions=" ++ show copyActions) $
                  applyCopyActions copyActions le re
-             pure (writeTarget, BoAdd l r)
+             pure $
+                 trace ("l=" ++ show l ++ " r=" ++ show r)
+                 (writeTarget, BoAdd l r)
       _ -> error "Undefined" -- TODO
 
 writePathAnalysis ::
@@ -375,6 +390,7 @@ writePathAnalysis expr env =
                  env
                  { e_copyAllowed = if not noCopy then CaAllowed else CaBanned
                  , e_writeOccured = WoWrite
+                 , e_pathTraversed = []
                  }
              pure (wt', ERecordMerge (Annotated ann (RecordMerge tgt' x noCopy)))
       ERecordAccess (Annotated ann (RecordAccess r rk)) ->
