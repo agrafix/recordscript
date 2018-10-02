@@ -131,7 +131,7 @@ makeAccessExpr pos ca =
                 RecordAccess inner rk
 
 applyCopyActions ::
-    (AnalysisM m, G.Data w, G.Typeable w, G.Data v, G.Typeable v) => [CopyAction] -> w -> v
+    (AnalysisM m, Show w, Applyable w, Applyable v) => [CopyAction] -> w -> v
     -> m (Expr TypedPos -> Expr TypedPos, w, v)
 applyCopyActions cas =
     loop cas id
@@ -144,27 +144,46 @@ applyCopyActions cas =
                    loop more (bind . bind') l' r'
 
 applyCopyAction ::
-    (AnalysisM m, G.Data w, G.Typeable w, G.Data v, G.Typeable v) => CopyAction -> w -> v
+    (AnalysisM m, Show w, Applyable w, Applyable v) => CopyAction -> w -> v
     -> m (Expr TypedPos -> Expr TypedPos, w, v)
 applyCopyAction ca lhs rhs =
     case ca_side ca of
       CsLeft ->
           do (lhs', bind) <- applyAnywhere ca lhs
-             pure (bind, lhs', rhs)
+             pure $ trace ("Apply " ++ show ca ++ " to " ++ show lhs ++ "=> \n" ++ show lhs') (bind, lhs', rhs)
       CsRight ->
           do (rhs', bind) <- applyAnywhere ca rhs
              pure (bind, lhs, rhs')
 
 applyAnywhere ::
-    (AnalysisM m, G.Data w, G.Typeable w)
+    (AnalysisM m, Applyable w)
     => CopyAction -> w -> m (w, Expr TypedPos -> Expr TypedPos)
 applyAnywhere copyAction target =
-    runStateT (G.somewhere (G.mkM (applyCollecting copyAction)) target) id
+    runStateT (applyCa copyAction target) id
+
+class Applyable x where
+    applyCa :: AnalysisM m => CopyAction -> x -> StateT (Expr TypedPos -> Expr TypedPos) m x
+
+instance Applyable (Expr TypedPos) where
+    applyCa = applyCollecting
+
+instance Applyable (Maybe (Expr TypedPos), Expr TypedPos) where
+    applyCa ca (a, b) =
+        do r <- applyCa ca a
+           s <- applyCa ca b
+           pure (r, s)
+
+instance Applyable x => Applyable [x] where
+    applyCa ca x = forM x (applyCa ca)
+
+instance Applyable x => Applyable (Maybe x) where
+    applyCa ca x = forM x (applyCa ca)
 
 applyCollecting ::
     AnalysisM m
     => CopyAction -> Expr TypedPos -> StateT (Expr TypedPos -> Expr TypedPos) m (Expr TypedPos)
 applyCollecting ca expr =
+    trace ("!!! Applying " ++ show ca ++ " to: \n" ++ show expr) $
     do (bind, e') <- lift $ applySingleCopyAction ca expr
        modify' $ \oldBind -> oldBind . bind -- TODO: is this order correct???
        pure e'
@@ -434,7 +453,7 @@ handleBranchSwitch env (TypedPos pos _) (mCondE, bodyE) =
              pure (writeTarget, (Just l, r), bind)
 
 handleBranchSwitchPair ::
-    (AnalysisM m, G.Data w, G.Typeable w)
+    (AnalysisM m, Show w, Applyable w)
     => Env
     -> TypedPos
     -> (WriteTarget, w, Expr TypedPos -> Expr TypedPos)
@@ -487,6 +506,35 @@ handleIf env tp (If bodies elseExpr) =
     where
         addA = EIf . Annotated tp
 
+handleExprSequence ::
+    AnalysisM m => Env -> TypedPos -> [Expr TypedPos]
+    -> m (WriteTarget, [Expr TypedPos], Expr TypedPos -> Expr TypedPos)
+handleExprSequence env (TypedPos pos _) exprs =
+    case exprs of
+      [] -> pure (WtPrim PwtNone, mempty, id)
+      (x:xs) ->
+          do (wt, x') <- writePathAnalysis x env
+             looper (wt, [x'], id) xs
+    where
+      looper st [] = pure st
+      looper (oldWt, oldX, oldBind) (y:ys) =
+          do (wt, y') <- writePathAnalysis y env
+             (wt', copyActions) <-
+                 trace ("Joining: " ++ show oldWt ++ " with " ++ show wt) $
+                 joinWritePaths pos oldWt wt
+             (bind, oldX', y'') <-
+                 trace ("CopyActions: " ++ show copyActions) $
+                 applyCopyActions copyActions oldX y'
+             looper (wt', oldX' ++ [y''], oldBind . bind) ys
+
+handleList ::
+    AnalysisM m => Env -> TypedPos -> [Expr TypedPos] -> m (WriteTarget, Expr TypedPos)
+handleList env tp exprs =
+    do (wt, exprs', bind) <- handleExprSequence env tp exprs
+       pure (wt, bind $ addA exprs')
+    where
+        addA = EList . Annotated tp
+
 writePathAnalysis ::
     forall m. AnalysisM m
     => Expr TypedPos -> Env
@@ -494,8 +542,8 @@ writePathAnalysis ::
 writePathAnalysis expr env =
     case expr of
       ECopy _ -> pure $ unchanged $ WtPrim PwtNone -- should never happen
-      ELit _ -> pure $unchanged $ WtPrim PwtNone -- ill typed
-      EList _ -> pure $ unchanged $ WtPrim PwtNone -- ill typed
+      ELit _ -> pure $unchanged $ WtPrim PwtNone -- does not do anything
+      EList (Annotated pos list) -> handleList env pos list
       EBinOp (Annotated pos bo) -> handleBinOp env pos bo
       ELambda (Annotated ann (Lambda args body)) ->
           -- TODO: is this correct? Probably need to remove the targets
