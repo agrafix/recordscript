@@ -72,7 +72,7 @@ freshVar :: AnalysisM m => m Var
 freshVar =
     do s <- get
        put $ s { as_varSupply = as_varSupply s + 1 }
-       pure $ Var $ T.pack $ "internal" ++ (show $ as_varSupply s)
+       pure $ Var $ T.pack $ "internal" ++ show (as_varSupply s)
 
 type AnalysisM m = (MonadPlus m, MonadError Error m, MonadState AnalysisState m)
 runAnalysisM :: ExceptT Error (StateT AnalysisState Identity) a -> Either Error a
@@ -133,8 +133,8 @@ makeAccessExpr pos ca =
 applyCopyActions ::
     (AnalysisM m, G.Data w, G.Typeable w, G.Data v, G.Typeable v) => [CopyAction] -> w -> v
     -> m (Expr TypedPos -> Expr TypedPos, w, v)
-applyCopyActions cas lhs rhs =
-    loop cas id lhs rhs
+applyCopyActions cas =
+    loop cas id
     where
       loop actions bind l r =
           case actions of
@@ -276,12 +276,14 @@ handleTargets pos lhs rhs =
                                 (True, _) ->
                                     pure
                                         ( writeTargets ++ maybeToList (propagationVal writesR r)
-                                        , copyActions ++ maybeToList (copyActionGen writesL l CsLeft)
+                                        , copyActions
+                                            ++ maybeToList (copyActionGen writesL l CsLeft)
                                         )
                                 (_, True) ->
                                     pure
                                         ( writeTargets ++ maybeToList (propagationVal writesL l)
-                                        , copyActions ++ maybeToList (copyActionGen writesR r CsRight)
+                                        , copyActions
+                                            ++ maybeToList (copyActionGen writesR r CsRight)
                                         )
 
        first (map repack) <$> foldM handlePair (mempty, mempty) byVar
@@ -503,7 +505,8 @@ writePathAnalysis expr env =
       ERecord _ -> pure $ unchanged $ WtPrim PwtNone -- don't care
       EVar (Annotated _ var) ->
           pure $ unchanged $
-          WtPrim (PwtVar var (e_pathTraversed env) (e_copyAllowed env) (e_writeOccured env) (e_position env))
+          WtPrim $
+          PwtVar var (e_pathTraversed env) (e_copyAllowed env) (e_writeOccured env) (e_position env)
       ERecordMerge (Annotated ann (RecordMerge tgt x noCopy)) ->
           do (wt', tgt') <-
                  writePathAnalysis tgt $
@@ -572,7 +575,8 @@ handleLetTarget var bindE pathTraversed pExtra funInfo wtarget =
               pure (WtPrim (PwtVar v2 (rp2 <> recordPath) ca2 wo2 p), wpE)
           WtMany wTargets ->
               do r <-
-                     mapM (handleLetTarget var wpE pathTraversed recordPath funInfo . WtPrim) wTargets
+                     mapM (handleLetTarget var wpE pathTraversed recordPath funInfo . WtPrim)
+                       wTargets
                  let outE =
                          case r of
                            [] -> wpE
@@ -608,12 +612,15 @@ argumentDependency funInfo (Lambda args body) =
            fmap (makeEntry targets . a_value) args
     where
       makeEntry targets var =
-          case filter (\(v, _, _, wo, _) -> wo == WoWrite && v == var) $ sortOn (\(_, path, _, _, _) -> length path) targets of
-            (x:_) -> Just x
-            _ ->
-                case filter (\(v, _, _, _, _) -> v == var) targets of
-                  (x:_) -> Just x
-                  _ -> Nothing
+          let relevantTarget =
+                  filter (\(v, _, _, wo, _) -> wo == WoWrite && v == var) $
+                  sortOn (\(_, path, _, _, _) -> length path) targets
+          in case relevantTarget of
+               (x:_) -> Just x
+               _ ->
+                   case filter (\(v, _, _, _, _) -> v == var) targets of
+                     (x:_) -> Just x
+                     _ -> Nothing
       relevantVars = S.fromList $ fmap a_value args
       handleTarget wt =
           case wt of
