@@ -26,7 +26,7 @@ prettyWriteTarget :: WriteTarget -> T.Text
 prettyWriteTarget wt =
     case wt of
       WtPrim PwtNone -> "~"
-      WtPrim (PwtVar (Var x) path copyAllowed writeOccured)
+      WtPrim (PwtVar (Var x) path copyAllowed writeOccured _)
           | null path -> prefix
           | otherwise -> prefix <> "." <> T.intercalate "." (fmap unRecordKey path)
           where
@@ -77,9 +77,9 @@ makeWriteTargetTests =
                      else ""
              in (prettyWriteTarget wt <> printedExpr) `shouldBe` expectedWriteTarget
 
-prettyArgDep :: [(Var, [RecordKey], CopyAllowed, WriteOccured)] -> T.Text
+prettyArgDep :: [(Var, [RecordKey], CopyAllowed, WriteOccured, Position)] -> T.Text
 prettyArgDep x =
-    T.intercalate "\n" $ flip fmap x $ \(Var v, path, ca, wo) ->
+    T.intercalate "\n" $ flip fmap x $ \(Var v, path, ca, wo, _) ->
     let prefix =
             case ca of
               CaAllowed -> ""
