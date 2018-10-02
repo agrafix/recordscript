@@ -19,7 +19,7 @@ import Control.Monad.Except
 import Control.Monad.State
 import Data.Bifunctor
 import Data.Functor.Identity
-import Data.List (foldl', sortOn, nub)
+import Data.List (foldl', sortOn, nub, find)
 import Data.Maybe
 import Data.Monoid
 import qualified Data.Generics as G
@@ -35,6 +35,10 @@ data Error
     , e_error :: ErrorMessage
     } deriving (Eq, Ord, Show)
 
+instance Monoid Error where
+    mempty = Error (Pos "<unknown>" Nothing Nothing) ENoError
+    mappend _ b = b
+
 prettyCopyError :: Error -> T.Text
 prettyCopyError e =
     "Error on " <> T.pack (show $ e_pos e) <> ": \n"
@@ -42,11 +46,13 @@ prettyCopyError e =
 
 data ErrorMessage
     = ECantCopy Var [RecordKey]
+    | ENoError
     deriving (Eq, Ord, Show)
 
 prettyErrorMessage :: ErrorMessage -> T.Text
 prettyErrorMessage em =
     case em of
+      ENoError -> "No error"
       ECantCopy (Var v) keys ->
           "Can not copy " <> v <> keyPath keys
     where
@@ -67,7 +73,7 @@ freshVar =
        put $ s { as_varSupply = as_varSupply s + 1 }
        pure $ Var $ T.pack $ "internal" ++ (show $ as_varSupply s)
 
-type AnalysisM m = (MonadError Error m, MonadState AnalysisState m)
+type AnalysisM m = (MonadPlus m, MonadError Error m, MonadState AnalysisState m)
 runAnalysisM :: ExceptT Error (StateT AnalysisState Identity) a -> Either Error a
 runAnalysisM action = runIdentity $ evalStateT (runExceptT action) initAnalysisState
 
@@ -118,8 +124,8 @@ makeAccessExpr pos ca =
                 RecordAccess inner rk
 
 applyCopyActions ::
-    AnalysisM m => [CopyAction] -> Expr TypedPos -> Expr TypedPos
-    -> m (Expr TypedPos -> Expr TypedPos, Expr TypedPos, Expr TypedPos)
+    (AnalysisM m, G.Data w, G.Typeable w, G.Data v, G.Typeable v) => [CopyAction] -> w -> v
+    -> m (Expr TypedPos -> Expr TypedPos, w, v)
 applyCopyActions cas lhs rhs =
     loop cas id lhs rhs
     where
@@ -131,16 +137,30 @@ applyCopyActions cas lhs rhs =
                    loop more (bind . bind') l' r'
 
 applyCopyAction ::
-    AnalysisM m => CopyAction -> Expr TypedPos -> Expr TypedPos
-    -> m (Expr TypedPos -> Expr TypedPos, Expr TypedPos, Expr TypedPos)
+    (AnalysisM m, G.Data w, G.Typeable w, G.Data v, G.Typeable v) => CopyAction -> w -> v
+    -> m (Expr TypedPos -> Expr TypedPos, w, v)
 applyCopyAction ca lhs rhs =
     case ca_side ca of
       CsLeft ->
-          do (bind, lhs') <- applySingleCopyAction ca lhs
+          do (lhs', bind) <- applyAnywhere ca lhs
              pure (bind, lhs', rhs)
       CsRight ->
-          do (bind, rhs') <- applySingleCopyAction ca rhs
+          do (rhs', bind) <- applyAnywhere ca rhs
              pure (bind, lhs, rhs')
+
+applyAnywhere ::
+    (AnalysisM m, G.Data w, G.Typeable w)
+    => CopyAction -> w -> m (w, Expr TypedPos -> Expr TypedPos)
+applyAnywhere copyAction target =
+    runStateT (G.somewhere (G.mkM (applyCollecting copyAction)) target) id
+
+applyCollecting ::
+    AnalysisM m
+    => CopyAction -> Expr TypedPos -> StateT (Expr TypedPos -> Expr TypedPos) m (Expr TypedPos)
+applyCollecting ca expr =
+    do (bind, e') <- lift $ applySingleCopyAction ca expr
+       modify' $ \oldBind -> oldBind . bind -- TODO: is this order correct???
+       pure e'
 
 applySingleCopyAction ::
     AnalysisM m => CopyAction -> Expr TypedPos -> m (Expr TypedPos -> Expr TypedPos, Expr TypedPos)
@@ -162,7 +182,7 @@ applySingleCopyAction ca expr =
            clobberedSearch = clobberAnnotation searchExpr
            execReplace e =
                let clobbered = clobberAnnotation e
-               in if trace ("clobbered=" ++ show clobbered ++ " search=" ++ show clobberedSearch) (clobbered == clobberedSearch)
+               in if clobbered == clobberedSearch
                   then replaceExpr
                   else e
        let bind x =
@@ -377,6 +397,81 @@ handleBinOp env tp@(TypedPos pos _) bo =
              (bind, l, r) <- applyCopyActions copyActions le re
              pure (writeTarget, bind $ addA (c l r))
 
+type BranchSwitch = (Maybe (Expr TypedPos), Expr TypedPos)
+
+handleBranchSwitch ::
+    AnalysisM m
+    => Env
+    -> TypedPos
+    -> BranchSwitch
+    -> m (WriteTarget, BranchSwitch, Expr TypedPos -> Expr TypedPos)
+handleBranchSwitch env (TypedPos pos _) (mCondE, bodyE) =
+    case mCondE of
+      Nothing ->
+          do (wt, e') <- writePathAnalysis bodyE env
+             pure (wt, (Nothing, e'), id)
+      Just condE ->
+          trace ("BranchSwitch condE=" ++ show condE ++ " pathTraversed=" ++ show (e_pathTraversed env)) $
+          do (condWt, condE') <- writePathAnalysis condE (env { e_pathTraversed = [] })
+             (bodyWt, bodyE') <- writePathAnalysis bodyE env
+             (writeTarget, copyActions) <- joinWritePaths pos condWt bodyWt
+             (bind, l, r) <- applyCopyActions copyActions condE' bodyE'
+             pure (writeTarget, (Just l, r), bind)
+
+handleBranchSwitchPair ::
+    (AnalysisM m, G.Data w, G.Typeable w)
+    => Env
+    -> TypedPos
+    -> (WriteTarget, w, Expr TypedPos -> Expr TypedPos)
+    -> BranchSwitch
+    -> m (WriteTarget, w, BranchSwitch, Expr TypedPos -> Expr TypedPos)
+handleBranchSwitchPair env tp@(TypedPos pos _) (wtL, l1, bindL) r =
+    do (wtR, r1, bindR) <- handleBranchSwitch env tp r
+       (writeTarget, copyActions) <- joinWritePaths pos wtL wtR
+       (bind3, bs1, bs2) <-
+           applyCopyActions copyActions l1 r1
+       let binds =
+               bindL . bindR . bind3
+       pure (writeTarget, bs1, bs2, binds)
+
+handleBranchSwitchSequence ::
+    forall m. AnalysisM m
+    => Env
+    -> TypedPos
+    -> [BranchSwitch]
+    -> m (WriteTarget, [BranchSwitch], Expr TypedPos -> Expr TypedPos)
+handleBranchSwitchSequence env tp branches =
+    do let looper st [] = pure st
+           looper (oldWt, oldEs, oldBind) (b:bs) =
+               do (wt, newEs, b', newBind) <-
+                      handleBranchSwitchPair env tp (oldWt, oldEs, oldBind) b
+                  looper (wt, newEs ++ [b'], newBind) bs
+       case branches of
+         [] -> error "Missing branches, requiring branches for this analysis"
+         (b1:rest) ->
+             do (wt, bs, bind) <- handleBranchSwitch env tp b1
+                looper (wt, [bs], bind) rest
+
+handleIf :: AnalysisM m => Env -> TypedPos -> If TypedPos -> m (WriteTarget, Expr TypedPos)
+handleIf env tp (If bodies elseExpr) =
+    do let inputBranches =
+               map (\(x, y) -> (Just x, y)) bodies
+               ++ [(Nothing, elseExpr)]
+       (wt, branches, bind) <- handleBranchSwitchSequence env tp inputBranches
+       let collectBodies xs =
+               case xs of
+                 [] -> []
+                 ((Just cond, body) : more) -> ((cond, body) : collectBodies more)
+                 ((Nothing, _) : more) -> collectBodies more
+           bodies' = collectBodies branches
+           elseExpr' =
+               case find (\(x, _) -> isNothing x) branches of
+                  Nothing -> error "Internal inconsistency error"
+                  Just (_, e) -> e
+       pure (wt, bind $ addA $ If bodies' elseExpr')
+    where
+        addA = EIf . Annotated tp
+
 writePathAnalysis ::
     forall m. AnalysisM m
     => Expr TypedPos -> Env
@@ -386,9 +481,7 @@ writePathAnalysis expr env =
       ECopy _ -> pure $ unchanged $ WtPrim PwtNone -- should never happen
       ELit _ -> pure $unchanged $ WtPrim PwtNone -- ill typed
       EList _ -> pure $ unchanged $ WtPrim PwtNone -- ill typed
-      EBinOp (Annotated pos bo) ->
-          do (wt, bo') <- handleBinOp env pos bo
-             pure (wt, bo')
+      EBinOp (Annotated pos bo) -> handleBinOp env pos bo
       ELambda (Annotated ann (Lambda args body)) ->
           -- TODO: is this correct? Probably need to remove the targets
           -- that the arguments already handle.
@@ -396,7 +489,8 @@ writePathAnalysis expr env =
              pure (wt', ELambda (Annotated ann (Lambda args body')))
       ERecord _ -> pure $ unchanged $ WtPrim PwtNone -- don't care
       EVar (Annotated _ var) ->
-          pure $ unchanged $ WtPrim (PwtVar var (e_pathTraversed env) (e_copyAllowed env) (e_writeOccured env))
+          pure $ unchanged $
+          WtPrim (PwtVar var (e_pathTraversed env) (e_copyAllowed env) (e_writeOccured env))
       ERecordMerge (Annotated ann (RecordMerge tgt x noCopy)) ->
           do (wt', tgt') <-
                  writePathAnalysis tgt $
@@ -407,12 +501,11 @@ writePathAnalysis expr env =
                  }
              pure (wt', ERecordMerge (Annotated ann (RecordMerge tgt' x noCopy)))
       ERecordAccess (Annotated ann (RecordAccess r rk)) ->
-          do (wt', r') <- writePathAnalysis r $ env { e_pathTraversed = e_pathTraversed env ++ [rk] }
+          trace ("RecordAccess r=" ++ show r ++ " rk=" ++ show rk) $
+          do (wt', r') <-
+                 writePathAnalysis r $ env { e_pathTraversed = e_pathTraversed env ++ [rk] }
              pure (wt', ERecordAccess $ Annotated ann (RecordAccess r' rk))
-      EIf (Annotated _ (If bodies elseExpr)) ->
-          do let exprs = fmap snd bodies ++ [elseExpr]
-             -- TODO: this is wrong, fix it!
-             unchanged . packMany <$> mapM (\e -> fst <$> writePathAnalysis e env) exprs
+      EIf (Annotated pos ifE) -> handleIf env pos ifE
       ECase (Annotated _ (Case _ cases)) ->
           do let exprs = fmap snd cases
              -- TODO: this is wrong, fix it!
@@ -457,10 +550,10 @@ handleLetTarget ::
     -> FunInfo -> WriteTarget
     -> m (WriteTarget, Expr TypedPos)
 handleLetTarget var bindE pathTraversed pExtra funInfo wtarget =
-    trace ("handleLetTarget: " ++ show bindE ++ " wt=" ++ show wtarget ++ " var=" ++ show var ++ " path=" ++ show pathTraversed ++ " extra=" ++ show pExtra) $
     case wtarget of
       WtPrim (PwtVar v recordPath ca wo) | v == var ->
         writePathAnalysis bindE (Env pathTraversed funInfo ca wo) >>= \(wpRes, wpE) ->
+        trace ("WPA wpRes=" ++ show wpRes) $
         case wpRes of
           WtPrim (PwtVar v2 rp2 ca2 wo2) ->
               pure (WtPrim (PwtVar v2 (rp2 <> recordPath) ca2 wo2), wpE)
