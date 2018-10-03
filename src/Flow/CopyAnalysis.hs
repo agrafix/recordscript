@@ -535,6 +535,16 @@ handleList env tp exprs =
     where
         addA = EList . Annotated tp
 
+handleRecord ::
+    AnalysisM m => Env -> TypedPos -> Record (Expr TypedPos) -> m (WriteTarget, Expr TypedPos)
+handleRecord env tp (Record hm) =
+    do let kvList = HM.toList hm
+       (wt, vals, bind) <- handleExprSequence env tp (map snd kvList)
+       let record = Record $ HM.fromList $ zip (map fst kvList) vals
+       pure (wt, bind $ addA record)
+    where
+      addA = ERecord . Annotated tp
+
 writePathAnalysis ::
     forall m. AnalysisM m
     => Expr TypedPos -> Env
@@ -544,13 +554,13 @@ writePathAnalysis expr env =
       ECopy _ -> pure $ unchanged $ WtPrim PwtNone -- should never happen
       ELit _ -> pure $unchanged $ WtPrim PwtNone -- does not do anything
       EList (Annotated pos list) -> handleList env pos list
+      ERecord (Annotated pos r) -> handleRecord env pos r
       EBinOp (Annotated pos bo) -> handleBinOp env pos bo
       ELambda (Annotated ann (Lambda args body)) ->
           -- TODO: is this correct? Probably need to remove the targets
           -- that the arguments already handle.
           do (wt', body') <- writePathAnalysis body env
              pure (wt', ELambda (Annotated ann (Lambda args body')))
-      ERecord _ -> pure $ unchanged $ WtPrim PwtNone -- don't care
       EVar (Annotated _ var) ->
           pure $ unchanged $
           WtPrim $
