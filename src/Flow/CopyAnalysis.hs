@@ -545,6 +545,27 @@ handleRecord env tp (Record hm) =
     where
       addA = ERecord . Annotated tp
 
+handleRecordMerge ::
+    AnalysisM m => Env -> TypedPos -> RecordMerge TypedPos -> m (WriteTarget, Expr TypedPos)
+handleRecordMerge env tp@(TypedPos pos _) (RecordMerge tgt x noCopy) =
+    do let env' =
+               env
+               { e_pathTraversed = []
+               }
+       (wtTgt, tgt') <-
+           writePathAnalysis tgt $
+           env'
+           { e_copyAllowed = if not noCopy then CaAllowed else CaBanned
+           , e_writeOccured = WoWrite
+           }
+       (wtX, x', bind) <- handleExprSequence (env' { e_position = PIn }) tp x
+       (finalWt, copyActions) <- joinWritePaths pos wtTgt wtX
+       (finalBind, tgt'', x'') <- applyCopyActions copyActions tgt' x'
+       let allBinds = bind . finalBind
+       pure (finalWt, allBinds $ addA (RecordMerge tgt'' x'' noCopy))
+    where
+        addA = ERecordMerge . Annotated tp
+
 writePathAnalysis ::
     forall m. AnalysisM m
     => Expr TypedPos -> Env
@@ -565,15 +586,7 @@ writePathAnalysis expr env =
           pure $ unchanged $
           WtPrim $
           PwtVar var (e_pathTraversed env) (e_copyAllowed env) (e_writeOccured env) (e_position env)
-      ERecordMerge (Annotated ann (RecordMerge tgt x noCopy)) ->
-          do (wt', tgt') <-
-                 writePathAnalysis tgt $
-                 env
-                 { e_copyAllowed = if not noCopy then CaAllowed else CaBanned
-                 , e_writeOccured = WoWrite
-                 , e_pathTraversed = []
-                 }
-             pure (wt', ERecordMerge (Annotated ann (RecordMerge tgt' x noCopy)))
+      ERecordMerge (Annotated ann rm) -> handleRecordMerge env ann rm
       ERecordAccess (Annotated ann (RecordAccess r rk)) ->
           trace ("RecordAccess r=" ++ show r ++ " rk=" ++ show rk) $
           do (wt', r') <-
