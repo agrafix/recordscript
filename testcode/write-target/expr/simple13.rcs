@@ -1,0 +1,5 @@
+case ({...record, x:5}.x) {
+   23 -> record.x;
+   25 -> {...record, y:5}.y;
+   _ -> 1;
+}

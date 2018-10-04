@@ -506,6 +506,23 @@ handleIf env tp (If bodies elseExpr) =
     where
         addA = EIf . Annotated tp
 
+handleCase :: AnalysisM m => Env -> TypedPos -> Case TypedPos -> m (WriteTarget, Expr TypedPos)
+handleCase env tp (Case matchOn cases) =
+    case cases of
+      [] -> writePathAnalysis matchOn $ env { e_pathTraversed = [], e_position = PIn }
+      (firstCase:otherCases) ->
+          do let inputBranches =
+                     ((Just matchOn, snd firstCase) : map (\(_, x) -> (Nothing, x)) otherCases)
+             (wt, branches, bind) <- handleBranchSwitchSequence env tp inputBranches
+             let matchOn' =
+                     case find (\(x, _) -> isJust x) branches of
+                       Just (Just m, _) -> m
+                       _ -> error "Internal inconsistency error (2)"
+                 cases' = zip (map fst cases) (map snd branches)
+             pure (wt, bind $ addA $ Case matchOn' cases')
+    where
+      addA = ECase . Annotated tp
+
 handleExprSequence ::
     AnalysisM m => Env -> TypedPos -> [Expr TypedPos]
     -> m (WriteTarget, [Expr TypedPos], Expr TypedPos -> Expr TypedPos)
@@ -593,10 +610,7 @@ writePathAnalysis expr env =
                  writePathAnalysis r $ env { e_pathTraversed = e_pathTraversed env ++ [rk] }
              pure (wt', ERecordAccess $ Annotated ann (RecordAccess r' rk))
       EIf (Annotated pos ifE) -> handleIf env pos ifE
-      ECase (Annotated _ (Case _ cases)) ->
-          do let exprs = fmap snd cases
-             -- TODO: this is wrong, fix it!
-             unchanged . packMany <$> mapM (\e -> fst <$> writePathAnalysis e env) exprs
+      ECase (Annotated pos caseE) -> handleCase env pos caseE
       EFunApp (Annotated ann (FunApp rcvE args)) ->
           getFunType rcvE (e_funInfo env) >>= \funType ->
           case funType of
@@ -689,7 +703,7 @@ argumentDependency funInfo (Lambda args body) =
           in case relevantTarget of
                (x:_) -> Just x
                _ ->
-                   case filter (\(v, _, _, _, _) -> v == var) targets of
+                   case filter (\(v, _, _, _, pos) -> v == var && pos /= PIn) targets of
                      (x:_) -> Just x
                      _ -> Nothing
       relevantVars = S.fromList $ fmap a_value args

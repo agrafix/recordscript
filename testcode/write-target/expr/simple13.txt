@@ -1,0 +1,3 @@
+#record
+=====
+let internal0 = !<record>;case({ ...internal0, ...{x: 5}}.x) {23 -> record.x;25 -> { ...record, ...{y: 5}}.y;_ -> 1;}
