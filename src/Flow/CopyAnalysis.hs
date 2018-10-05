@@ -325,6 +325,15 @@ packMany wts =
             WtPrim pwt -> accum <> [pwt]
             WtMany pwts -> accum <> pwts
 
+removeTarget :: Var -> WriteTarget -> WriteTarget
+removeTarget v wt =
+    case wt of
+      WtPrim PwtNone -> WtPrim PwtNone
+      WtPrim (PwtVar writtenVar _ _ _ _) ->
+          if writtenVar == v then WtPrim PwtNone else wt
+      WtMany pwts ->
+          packMany $ map (removeTarget v . WtPrim) pwts
+
 data FunType
     = FtFun [Maybe (Var, [RecordKey], CopyAllowed, WriteOccured, Position)]
     | FtRec (Record FunType)
@@ -562,6 +571,13 @@ handleRecord env tp (Record hm) =
     where
       addA = ERecord . Annotated tp
 
+handleLambda ::
+    AnalysisM m => Env -> TypedPos -> Lambda TypedPos -> m (WriteTarget, Expr TypedPos)
+handleLambda env tp (Lambda args body) =
+    do (wt', body') <- writePathAnalysis body env
+       let wtFinal = foldl' (flip removeTarget) wt' $ fmap a_value args
+       pure (wtFinal, ELambda (Annotated tp (Lambda args body')))
+
 handleRecordMerge ::
     AnalysisM m => Env -> TypedPos -> RecordMerge TypedPos -> m (WriteTarget, Expr TypedPos)
 handleRecordMerge env tp@(TypedPos pos _) (RecordMerge tgt x noCopy) =
@@ -594,11 +610,7 @@ writePathAnalysis expr env =
       EList (Annotated pos list) -> handleList env pos list
       ERecord (Annotated pos r) -> handleRecord env pos r
       EBinOp (Annotated pos bo) -> handleBinOp env pos bo
-      ELambda (Annotated ann (Lambda args body)) ->
-          -- TODO: is this correct? Probably need to remove the targets
-          -- that the arguments already handle.
-          do (wt', body') <- writePathAnalysis body env
-             pure (wt', ELambda (Annotated ann (Lambda args body')))
+      ELambda (Annotated ann lambdaE) -> handleLambda env ann lambdaE
       EVar (Annotated _ var) ->
           pure $ unchanged $
           WtPrim $
