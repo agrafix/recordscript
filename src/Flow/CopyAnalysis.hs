@@ -132,20 +132,20 @@ makeAccessExpr pos ca =
 
 applyCopyActions ::
     (AnalysisM m, Show w, Applyable w, Applyable v) => [CopyAction] -> w -> v
-    -> m (Expr TypedPos -> Expr TypedPos, w, v)
+    -> m (PendingCopies, w, v)
 applyCopyActions cas =
-    loop cas id
+    loop cas mempty
     where
       loop actions bind l r =
           case actions of
             [] -> pure (bind, l, r)
             (ca:more) ->
                 do (bind', l', r') <- applyCopyAction ca l r
-                   loop more (bind . bind') l' r'
+                   loop more (bind <> bind') l' r'
 
 applyCopyAction ::
     (AnalysisM m, Show w, Applyable w, Applyable v) => CopyAction -> w -> v
-    -> m (Expr TypedPos -> Expr TypedPos, w, v)
+    -> m (PendingCopies, w, v)
 applyCopyAction ca lhs rhs =
     case ca_side ca of
       CsLeft ->
@@ -157,12 +157,30 @@ applyCopyAction ca lhs rhs =
 
 applyAnywhere ::
     (AnalysisM m, Applyable w)
-    => CopyAction -> w -> m (w, Expr TypedPos -> Expr TypedPos)
+    => CopyAction -> w -> m (w, PendingCopies)
 applyAnywhere copyAction target =
-    runStateT (applyCa copyAction target) id
+    runStateT (applyCa copyAction target) mempty
+
+data PendingCopy
+    = PendingCopy
+    { pc_annotation :: TypedPos
+    , pc_var :: Var
+    , pc_expr :: Expr TypedPos
+    } deriving (Show, Eq)
+
+type PendingCopies = [PendingCopy]
+bindCopies :: PendingCopies -> Expr TypedPos -> Expr TypedPos
+bindCopies pcs e =
+    foldl' apply e pcs
+    where
+      apply currentE pc =
+          let pos = tp_pos (pc_annotation pc)
+              ann = TypedPos pos (TVar (TypeVar "<unknown>"))
+          in ELet $ Annotated (pc_annotation pc) $
+             Let (Annotated ann $ pc_var pc) (pc_expr pc) currentE
 
 class Applyable x where
-    applyCa :: AnalysisM m => CopyAction -> x -> StateT (Expr TypedPos -> Expr TypedPos) m x
+    applyCa :: AnalysisM m => CopyAction -> x -> StateT PendingCopies m x
 
 instance Applyable (Expr TypedPos) where
     applyCa = applyCollecting
@@ -181,15 +199,15 @@ instance Applyable x => Applyable (Maybe x) where
 
 applyCollecting ::
     AnalysisM m
-    => CopyAction -> Expr TypedPos -> StateT (Expr TypedPos -> Expr TypedPos) m (Expr TypedPos)
+    => CopyAction -> Expr TypedPos -> StateT PendingCopies m (Expr TypedPos)
 applyCollecting ca expr =
     trace ("!!! Applying " ++ show ca ++ " to: \n" ++ show expr) $
     do (bind, e') <- lift $ applySingleCopyAction ca expr
-       modify' $ \oldBind -> oldBind . bind -- TODO: is this order correct???
+       modify' $ \oldBind -> oldBind <> bind -- TODO: is this order correct???
        pure e'
 
 applySingleCopyAction ::
-    AnalysisM m => CopyAction -> Expr TypedPos -> m (Expr TypedPos -> Expr TypedPos, Expr TypedPos)
+    AnalysisM m => CopyAction -> Expr TypedPos -> m (PendingCopies, Expr TypedPos)
 applySingleCopyAction ca expr =
     do bindVar <- freshVar
        let exprAnn = getExprAnn expr
@@ -211,9 +229,13 @@ applySingleCopyAction ca expr =
                in if clobbered == clobberedSearch
                   then replaceExpr
                   else e
-       let bind x =
-               ELet $ Annotated exprAnn $ Let boundVar boundExpr x
-       pure (bind, G.everywhere (G.mkT execReplace) expr)
+       let bind =
+               PendingCopy
+               { pc_annotation = exprAnn
+               , pc_var = bindVar
+               , pc_expr = boundExpr
+               }
+       pure (pure bind, G.everywhere (G.mkT execReplace) expr)
 
 joinWritePaths :: AnalysisM m => Pos -> WriteTarget -> WriteTarget -> m (WriteTarget, [CopyAction])
 joinWritePaths pos w1 w2 =
@@ -334,6 +356,13 @@ removeTarget v wt =
       WtMany pwts ->
           packMany $ map (removeTarget v . WtPrim) pwts
 
+removeCopiedTargets :: PendingCopies -> WriteTarget -> WriteTarget
+removeCopiedTargets pc wt =
+    foldl' remover wt pc
+    where
+      remover wx copy =
+          removeTarget (pc_var copy) wx
+
 data FunType
     = FtFun [Maybe (Var, [RecordKey], CopyAllowed, WriteOccured, Position)]
     | FtRec (Record FunType)
@@ -433,7 +462,7 @@ handleBinOp env tp@(TypedPos pos _) bo =
              (rhs, re) <- writePathAnalysis y env
              (writeTarget, copyActions) <- joinWritePaths pos lhs rhs
              (bind, l, r) <- applyCopyActions copyActions le re
-             pure (writeTarget, bind $ addA (c l r))
+             pure (writeTarget, bindCopies bind $ addA (c l r))
 
 type BranchSwitch = (Maybe (Expr TypedPos), Expr TypedPos)
 
@@ -442,12 +471,12 @@ handleBranchSwitch ::
     => Env
     -> TypedPos
     -> BranchSwitch
-    -> m (WriteTarget, BranchSwitch, Expr TypedPos -> Expr TypedPos)
+    -> m (WriteTarget, BranchSwitch, PendingCopies)
 handleBranchSwitch env (TypedPos pos _) (mCondE, bodyE) =
     case mCondE of
       Nothing ->
           do (wt, e') <- writePathAnalysis bodyE env
-             pure (wt, (Nothing, e'), id)
+             pure (wt, (Nothing, e'), mempty)
       Just condE ->
           trace ("BranchSwitch condE=" ++ show condE ++ " pathTraversed=" ++ show (e_pathTraversed env)) $
           do (condWt, condE') <-
@@ -465,16 +494,16 @@ handleBranchSwitchPair ::
     (AnalysisM m, Show w, Applyable w)
     => Env
     -> TypedPos
-    -> (WriteTarget, w, Expr TypedPos -> Expr TypedPos)
+    -> (WriteTarget, w, PendingCopies)
     -> BranchSwitch
-    -> m (WriteTarget, w, BranchSwitch, Expr TypedPos -> Expr TypedPos)
+    -> m (WriteTarget, w, BranchSwitch, PendingCopies)
 handleBranchSwitchPair env tp@(TypedPos pos _) (wtL, l1, bindL) r =
     do (wtR, r1, bindR) <- handleBranchSwitch env tp r
        (writeTarget, copyActions) <- joinWritePaths pos wtL wtR
        (bind3, bs1, bs2) <-
            applyCopyActions copyActions l1 r1
        let binds =
-               bindL . bindR . bind3
+               bindL <> bindR <> bind3
        pure (writeTarget, bs1, bs2, binds)
 
 handleBranchSwitchSequence ::
@@ -482,7 +511,7 @@ handleBranchSwitchSequence ::
     => Env
     -> TypedPos
     -> [BranchSwitch]
-    -> m (WriteTarget, [BranchSwitch], Expr TypedPos -> Expr TypedPos)
+    -> m (WriteTarget, [BranchSwitch], PendingCopies)
 handleBranchSwitchSequence env tp branches =
     do let looper st [] = pure st
            looper (oldWt, oldEs, oldBind) (b:bs) =
@@ -511,7 +540,7 @@ handleIf env tp (If bodies elseExpr) =
                case find (\(x, _) -> isNothing x) branches of
                   Nothing -> error "Internal inconsistency error"
                   Just (_, e) -> e
-       pure (wt, bind $ addA $ If bodies' elseExpr')
+       pure (wt, bindCopies bind $ addA $ If bodies' elseExpr')
     where
         addA = EIf . Annotated tp
 
@@ -528,19 +557,19 @@ handleCase env tp (Case matchOn cases) =
                        Just (Just m, _) -> m
                        _ -> error "Internal inconsistency error (2)"
                  cases' = zip (map fst cases) (map snd branches)
-             pure (wt, bind $ addA $ Case matchOn' cases')
+             pure (wt, bindCopies bind $ addA $ Case matchOn' cases')
     where
       addA = ECase . Annotated tp
 
 handleExprSequence ::
     AnalysisM m => Env -> TypedPos -> [Expr TypedPos]
-    -> m (WriteTarget, [Expr TypedPos], Expr TypedPos -> Expr TypedPos)
+    -> m (WriteTarget, [Expr TypedPos], PendingCopies)
 handleExprSequence env (TypedPos pos _) exprs =
     case exprs of
-      [] -> pure (WtPrim PwtNone, mempty, id)
+      [] -> pure (WtPrim PwtNone, mempty, mempty)
       (x:xs) ->
           do (wt, x') <- writePathAnalysis x env
-             looper (wt, [x'], id) xs
+             looper (wt, [x'], mempty) xs
     where
       looper st [] = pure st
       looper (oldWt, oldX, oldBind) (y:ys) =
@@ -551,13 +580,13 @@ handleExprSequence env (TypedPos pos _) exprs =
              (bind, oldX', y'') <-
                  trace ("CopyActions: " ++ show copyActions) $
                  applyCopyActions copyActions oldX y'
-             looper (wt', oldX' ++ [y''], oldBind . bind) ys
+             looper (wt', oldX' ++ [y''], oldBind <> bind) ys
 
 handleList ::
     AnalysisM m => Env -> TypedPos -> [Expr TypedPos] -> m (WriteTarget, Expr TypedPos)
 handleList env tp exprs =
     do (wt, exprs', bind) <- handleExprSequence env tp exprs
-       pure (wt, bind $ addA exprs')
+       pure (wt, bindCopies bind $ addA exprs')
     where
         addA = EList . Annotated tp
 
@@ -567,7 +596,7 @@ handleRecord env tp (Record hm) =
     do let kvList = HM.toList hm
        (wt, vals, bind) <- handleExprSequence env tp (map snd kvList)
        let record = Record $ HM.fromList $ zip (map fst kvList) vals
-       pure (wt, bind $ addA record)
+       pure (wt, bindCopies bind $ addA record)
     where
       addA = ERecord . Annotated tp
 
@@ -594,8 +623,8 @@ handleRecordMerge env tp@(TypedPos pos _) (RecordMerge tgt x noCopy) =
        (wtX, x', bind) <- handleExprSequence (env' { e_position = PIn }) tp x
        (finalWt, copyActions) <- joinWritePaths pos wtTgt wtX
        (finalBind, tgt'', x'') <- applyCopyActions copyActions tgt' x'
-       let allBinds = bind . finalBind
-       pure (finalWt, allBinds $ addA (RecordMerge tgt'' x'' noCopy))
+       let allBinds = bind <> finalBind
+       pure (finalWt, bindCopies allBinds $ addA (RecordMerge tgt'' x'' noCopy))
     where
         addA = ERecordMerge . Annotated tp
 
@@ -613,8 +642,8 @@ handleFunApp env tp (FunApp rcvE args) =
                  handleExprSequence (env { e_position = PIn }) tp args
              (wt, args') <- funWriteThrough ft treatedArgs (e_funInfo env)
              pure
-                 (packMany [wtInitial, wt]
-                 , bind $ EFunApp $ Annotated tp (FunApp rcvE args')
+                 (packMany [wtInitial, removeCopiedTargets bind wt]
+                 , bindCopies bind $ EFunApp $ Annotated tp (FunApp rcvE args')
                  )
       Just (FtRec r) ->
           -- TODO not sure if this can ever happen?
