@@ -1,0 +1,3 @@
+(other.y|record.x)
+=====
+() => { let f = (a, b, c) => { [a,b,c] };let internal0 = !<record>;(f)({ ...internal0, ...{x: 5}}.x,record.x,other.y) }

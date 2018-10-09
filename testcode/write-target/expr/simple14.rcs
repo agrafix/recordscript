@@ -1,0 +1,4 @@
+() => {
+  let f = (a, b, c) => { [a, b, c] };
+  f({...record, x:5}.x, record.x, other.y)
+}

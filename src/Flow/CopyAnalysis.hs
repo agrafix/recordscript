@@ -599,6 +599,28 @@ handleRecordMerge env tp@(TypedPos pos _) (RecordMerge tgt x noCopy) =
     where
         addA = ERecordMerge . Annotated tp
 
+handleFunApp ::
+    AnalysisM m => Env -> TypedPos -> FunApp TypedPos -> m (WriteTarget, Expr TypedPos)
+handleFunApp env tp (FunApp rcvE args) =
+    getFunType rcvE (e_funInfo env) >>= \funType ->
+    case funType of
+      Nothing -> error "Can't call function"
+      Just FtSelf ->
+          -- don't care about writes to self
+          pure (WtPrim PwtNone, EFunApp (Annotated tp (FunApp rcvE args)))
+      Just (FtFun ft) ->
+          do (wtInitial, treatedArgs, bind) <-
+                 handleExprSequence (env { e_position = PIn }) tp args
+             (wt, args') <- funWriteThrough ft treatedArgs (e_funInfo env)
+             pure
+                 (packMany [wtInitial, wt]
+                 , bind $ EFunApp $ Annotated tp (FunApp rcvE args')
+                 )
+      Just (FtRec r) ->
+          -- TODO not sure if this can ever happen?
+          error ("IMPLEMENT ME" ++ show r)
+
+
 writePathAnalysis ::
     forall m. AnalysisM m
     => Expr TypedPos -> Env
@@ -617,23 +639,12 @@ writePathAnalysis expr env =
           PwtVar var (e_pathTraversed env) (e_copyAllowed env) (e_writeOccured env) (e_position env)
       ERecordMerge (Annotated ann rm) -> handleRecordMerge env ann rm
       ERecordAccess (Annotated ann (RecordAccess r rk)) ->
-          trace ("RecordAccess r=" ++ show r ++ " rk=" ++ show rk) $
           do (wt', r') <-
                  writePathAnalysis r $ env { e_pathTraversed = e_pathTraversed env ++ [rk] }
              pure (wt', ERecordAccess $ Annotated ann (RecordAccess r' rk))
       EIf (Annotated pos ifE) -> handleIf env pos ifE
       ECase (Annotated pos caseE) -> handleCase env pos caseE
-      EFunApp (Annotated ann (FunApp rcvE args)) ->
-          getFunType rcvE (e_funInfo env) >>= \funType ->
-          case funType of
-            Nothing -> error "Can't call function"
-            Just FtSelf ->
-                pure $ unchanged $ WtPrim PwtNone -- don't care about writes to self
-            Just (FtFun ft) ->
-                -- TODO: this is wrong, fix it!
-                do (wt, args') <- funWriteThrough ft args (e_funInfo env)
-                   pure (wt, EFunApp $ Annotated ann (FunApp rcvE args'))
-            Just (FtRec r) -> error ("IMPLEMENT ME" ++ show r)
+      EFunApp (Annotated ann funAppE) -> handleFunApp env ann funAppE
       ELet (Annotated ann1 (Let (Annotated ann2 var) bindE inE)) ->
           do let tempFunInfo =
                      FunInfo $ HM.insert var FtSelf (unFunInfo $ e_funInfo env)
