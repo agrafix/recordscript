@@ -674,7 +674,7 @@ writePathAnalysis expr env =
       EIf (Annotated pos ifE) -> handleIf env pos ifE
       ECase (Annotated pos caseE) -> handleCase env pos caseE
       EFunApp (Annotated ann funAppE) -> handleFunApp env ann funAppE
-      ELet (Annotated ann1 (Let (Annotated ann2 var) bindE inE)) ->
+      ELet (Annotated ann1@(TypedPos pos _) (Let (Annotated ann2 var) bindE inE)) ->
           do let tempFunInfo =
                      FunInfo $ HM.insert var FtSelf (unFunInfo $ e_funInfo env)
              funInfo' <-
@@ -690,12 +690,20 @@ writePathAnalysis expr env =
                     (retWt, bindE'') <-
                         handleLetTarget var bindE' (e_pathTraversed env) [] funInfo' inRes
                     pure (retWt, bindE'', inE')
+             (finalWt, copyActions) <-
+                 trace ("## bind=" ++ show bindWt ++ "res=" ++ show resWt) $
+                 joinWritePaths pos bindWt resWt
+             (finalBind, finalBindE, finalE) <-
+                 trace ("### final=" ++ show finalWt) $
+                 applyCopyActions copyActions bindE'' inE''
              let let' =
-                     ELet $ Annotated ann1 $ Let (Annotated ann2 var) bindE'' inE''
-             pure (packMany [resWt, bindWt], let') -- NB: putting the resWt first here is important.
+                     ELet $ Annotated ann1 $ Let (Annotated ann2 var) finalBindE finalE
+             pure
+                 (finalWt, bindCopies finalBind let') -- NB: putting the resWt first here is important.
     where
       unchanged x = (x, expr)
 
+-- TODO: theres a bug in how this handles writes...
 handleLetTarget ::
     AnalysisM m
     => Var -> Expr TypedPos

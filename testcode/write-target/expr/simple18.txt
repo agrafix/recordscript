@@ -1,0 +1,3 @@
+#record
+=====
+let internal1 = !<record>;let x = { ...internal1, ...{x: 5}}.x;let internal0 = !<record>;let y = { ...internal0, ...{x: 10}}.x;(({ ...record, ...{x: 5}}.x + 10) + y)

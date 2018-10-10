@@ -1,0 +1,2 @@
+let x = record.x;
+{...record, x:5}.x + 10
