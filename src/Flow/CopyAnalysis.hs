@@ -702,7 +702,6 @@ writePathAnalysis expr env =
     where
       unchanged x = (x, expr)
 
--- TODO: theres a bug in how this handles writes...
 handleLetTarget ::
     AnalysisM m
     => Var -> Expr TypedPos
