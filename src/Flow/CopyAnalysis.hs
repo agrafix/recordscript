@@ -689,7 +689,7 @@ writePathAnalysis expr env =
                  do (inRes, inE') <- writePathAnalysis inE $ env { e_funInfo = funInfo' }
                     (retWt, bindE'') <-
                         handleLetTarget var bindE' (e_pathTraversed env) [] funInfo' inRes
-                    pure (retWt, bindE'', inE')
+                    pure (removeTarget var retWt, bindE'', inE')
              (finalWt, copyActions) <-
                  trace ("## bind=" ++ show bindWt ++ "res=" ++ show resWt) $
                  joinWritePaths pos bindWt resWt
@@ -698,8 +698,7 @@ writePathAnalysis expr env =
                  applyCopyActions copyActions bindE'' inE''
              let let' =
                      ELet $ Annotated ann1 $ Let (Annotated ann2 var) finalBindE finalE
-             pure
-                 (finalWt, bindCopies finalBind let') -- NB: putting the resWt first here is important.
+             pure (finalWt, bindCopies finalBind let')
     where
       unchanged x = (x, expr)
 
@@ -717,7 +716,9 @@ handleLetTarget var bindE pathTraversed pExtra funInfo wtarget =
         trace ("WPA wpRes=" ++ show wpRes) $
         case wpRes of
           WtPrim (PwtVar v2 rp2 ca2 wo2 p) | p /= PIn ->
-              pure (WtPrim (PwtVar v2 (rp2 <> recordPath) ca2 wo2 p), wpE)
+              if wo2 == WoWrite && wo /= WoWrite
+              then pure (WtPrim (PwtVar v2 rp2 ca2 wo2 p), wpE)
+              else pure (WtPrim (PwtVar v2 (rp2 <> recordPath) ca2 wo2 p), wpE)
           WtMany wTargets ->
               do r <-
                      mapM (handleLetTarget var wpE pathTraversed recordPath funInfo . WtPrim)
