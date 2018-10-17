@@ -7,12 +7,14 @@ where
 
 import Types.Annotation
 import Types.Ast
+import Types.Common
 
 import Control.Monad.State
 import Data.Functor.Identity
 import Data.List
 import Language.JavaScript.Parser.AST
 import Language.JavaScript.Pretty.Printer
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
 data JsState
@@ -43,6 +45,24 @@ genLiteral lit =
       LString t -> JSStringLiteral JSNoAnnot (show $ T.unpack t)
       LBool b -> JSLiteral JSNoAnnot (if b then "true" else "false")
 
+genRecord :: CodeGenM m => Record (Expr a) -> m JSExpression
+genRecord (Record recHm) =
+    do let kvPairs = HM.toList recHm
+       transformed <-
+           flip mapM kvPairs $ \(k, v) ->
+           do v' <- genExpr v
+              pure (k, v')
+       let packKv (RecordKey k, v) =
+               JSPropertyNameandValue (JSPropertyIdent JSNoAnnot (T.unpack k)) JSNoAnnot [v]
+           contents =
+               JSCTLNone $
+               case transformed of
+                 [] -> JSLNil
+                 [x] -> JSLOne (packKv x)
+                 (x:xs) ->
+                     foldl' (\prev y -> JSLCons prev JSNoAnnot (packKv y)) (JSLOne (packKv x)) xs
+       pure $ JSObjectLiteral JSNoAnnot contents JSNoAnnot
+
 genExpr :: CodeGenM m => Expr a -> m JSExpression
 genExpr expr =
     case expr of
@@ -54,4 +74,5 @@ genExpr expr =
                      intersperse (JSArrayComma JSNoAnnot) $
                      map JSArrayElement exprs'
              pure $ JSArrayLiteral JSNoAnnot contents JSNoAnnot
+      ERecord (Annotated _ recE) -> genRecord recE
       _ -> error "undefined"

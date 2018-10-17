@@ -1,0 +1,7 @@
+{
+  foo: 2,
+  bar: true,
+  baz: 3.4,
+  bum: 'c',
+  bim: ["foo"]
+}
