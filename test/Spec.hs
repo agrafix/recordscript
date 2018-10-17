@@ -1,3 +1,4 @@
+import Test.CodeGenSpec
 import Test.CopyAnalysisSpec
 import Test.Helpers
 import Test.ParserPrettySpec
@@ -70,3 +71,4 @@ main =
        describe "Type checker" makeTypeCheckerTests
        describe "Write target" makeWriteTargetTests
        describe "Arg dependency" makeArgDepTests
+       describe "Codegen" $ makeCodeGenTests "testcode/codegen/expr"

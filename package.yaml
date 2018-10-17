@@ -28,6 +28,7 @@ dependencies:
   - syb >=0.4
   - megaparsec
   - scientific
+  - language-javascript
 
 default-extensions:
   - ApplicativeDo
