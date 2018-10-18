@@ -55,12 +55,7 @@ genRecord (Record recHm) =
        let packKv (RecordKey k, v) =
                JSPropertyNameandValue (JSPropertyIdent JSNoAnnot (T.unpack k)) JSNoAnnot [v]
            contents =
-               JSCTLNone $
-               case transformed of
-                 [] -> JSLNil
-                 [x] -> JSLOne (packKv x)
-                 (x:xs) ->
-                     foldl' (\prev y -> JSLCons prev JSNoAnnot (packKv y)) (JSLOne (packKv x)) xs
+               JSCTLNone (makeCommaList $ map packKv transformed)
        pure $ JSObjectLiteral JSNoAnnot contents JSNoAnnot
 
 genIf :: CodeGenM m => If a -> m JSExpression
@@ -80,6 +75,21 @@ genIf (If bodies elseE) =
                  flip (JSExpressionParen JSNoAnnot) JSNoAnnot $
                  JSExpressionTernary cond JSNoAnnot body JSNoAnnot elseVal
 
+makeCommaList :: [a] -> JSCommaList a
+makeCommaList vals =
+    case vals of
+      [] -> JSLNil
+      [x] -> JSLOne x
+      (x:xs) ->
+          foldl' (\prev y -> JSLCons prev JSNoAnnot y) (JSLOne x) xs
+
+genFunApp :: CodeGenM m => FunApp a -> m JSExpression
+genFunApp (FunApp receiverE argListE) =
+    do recv <- genExpr receiverE
+       args <- mapM genExpr argListE
+       pure $
+           JSCallExpression recv JSNoAnnot (makeCommaList args) JSNoAnnot
+
 genExpr :: CodeGenM m => Expr a -> m JSExpression
 genExpr expr =
     case expr of
@@ -93,4 +103,5 @@ genExpr expr =
              pure $ JSArrayLiteral JSNoAnnot contents JSNoAnnot
       ERecord (Annotated _ recE) -> genRecord recE
       EIf (Annotated _ ifE) -> genIf ifE
+      EFunApp (Annotated _ funAppE) -> genFunApp funAppE
       _ -> error "undefined"
