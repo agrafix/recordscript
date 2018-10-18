@@ -128,6 +128,12 @@ genCopy bodyE =
        pure $
            JSCallExpression objAssign JSNoAnnot (makeCommaList [emptyObj, body]) JSNoAnnot
 
+genRecordAccess :: CodeGenM m => RecordAccess a -> m JSExpression
+genRecordAccess (RecordAccess recordE (RecordKey field)) =
+    do body <- genExpr recordE
+       pure $
+           JSCallExpressionDot (makeParen body) JSNoAnnot (JSIdentifier JSNoAnnot $ T.unpack field)
+
 genExpr :: CodeGenM m => Expr a -> m JSExpression
 genExpr expr =
     case expr of
@@ -141,6 +147,7 @@ genExpr expr =
              pure $ JSArrayLiteral JSNoAnnot contents JSNoAnnot
       ERecord (Annotated _ recE) -> genRecord recE
       ERecordMerge (Annotated _ recordMergeE) -> genRecordMerge recordMergeE
+      ERecordAccess (Annotated _ recordAccessE) -> genRecordAccess recordAccessE
       EIf (Annotated _ ifE) -> genIf ifE
       EFunApp (Annotated _ funAppE) -> genFunApp funAppE
       ELambda (Annotated _ lambdaE) -> genLambda lambdaE
