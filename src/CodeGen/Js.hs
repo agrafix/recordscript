@@ -109,6 +109,14 @@ genLambda (Lambda args bodyE) =
            makeParen $
            JSFunctionExpression JSNoAnnot JSIdentNone JSNoAnnot params JSNoAnnot bodyBlock
 
+genRecordMerge :: CodeGenM m => RecordMerge a -> m JSExpression
+genRecordMerge (RecordMerge targetE mergeInEs _) =
+    do target <- genExpr targetE
+       mergers <- mapM genExpr mergeInEs
+       let objAssign = JSIdentifier JSNoAnnot "Object.assign"
+       pure $
+           JSCallExpression objAssign JSNoAnnot (makeCommaList (target:mergers)) JSNoAnnot
+
 genExpr :: CodeGenM m => Expr a -> m JSExpression
 genExpr expr =
     case expr of
@@ -121,6 +129,7 @@ genExpr expr =
                      map JSArrayElement exprs'
              pure $ JSArrayLiteral JSNoAnnot contents JSNoAnnot
       ERecord (Annotated _ recE) -> genRecord recE
+      ERecordMerge (Annotated _ recordMergeE) -> genRecordMerge recordMergeE
       EIf (Annotated _ ifE) -> genIf ifE
       EFunApp (Annotated _ funAppE) -> genFunApp funAppE
       ELambda (Annotated _ lambdaE) -> genLambda lambdaE
