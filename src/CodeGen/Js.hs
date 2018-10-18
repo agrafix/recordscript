@@ -83,12 +83,31 @@ makeCommaList vals =
       (x:xs) ->
           foldl' (\prev y -> JSLCons prev JSNoAnnot y) (JSLOne x) xs
 
+makeIdent :: T.Text -> JSIdent
+makeIdent i = JSIdentName JSNoAnnot (T.unpack i)
+
+makeParen :: JSExpression -> JSExpression
+makeParen expr = JSExpressionParen JSNoAnnot expr JSNoAnnot
+
 genFunApp :: CodeGenM m => FunApp a -> m JSExpression
 genFunApp (FunApp receiverE argListE) =
     do recv <- genExpr receiverE
        args <- mapM genExpr argListE
        pure $
            JSCallExpression recv JSNoAnnot (makeCommaList args) JSNoAnnot
+
+genLambda :: CodeGenM m => Lambda a -> m JSExpression
+genLambda (Lambda args bodyE) =
+    do let params =
+               makeCommaList $
+               map (\(Annotated _ (Var x)) -> makeIdent x) args
+       body <-
+           makeParen <$> genExpr bodyE
+       let bodyBlock =
+               JSBlock JSNoAnnot [JSReturn JSNoAnnot (Just body) $ JSSemi JSNoAnnot] JSNoAnnot
+       pure $
+           makeParen $
+           JSFunctionExpression JSNoAnnot JSIdentNone JSNoAnnot params JSNoAnnot bodyBlock
 
 genExpr :: CodeGenM m => Expr a -> m JSExpression
 genExpr expr =
@@ -104,4 +123,5 @@ genExpr expr =
       ERecord (Annotated _ recE) -> genRecord recE
       EIf (Annotated _ ifE) -> genIf ifE
       EFunApp (Annotated _ funAppE) -> genFunApp funAppE
+      ELambda (Annotated _ lambdaE) -> genLambda lambdaE
       _ -> error "undefined"
