@@ -47,7 +47,7 @@ makeCodeGenTests dir =
                              do let generated =
                                         TL.toStrict $
                                         renderToText $
-                                        JSAstExpression (runCodeGenM (genExpr finalE))
+                                        JSAstExpression (runCodeGenM (genExpr finalE >>= forceExpr))
                                         JSNoAnnot
                                 generated `shouldBe` expected
                 Left errMsg ->

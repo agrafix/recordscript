@@ -1,0 +1,10 @@
+let f = 1;
+let g = 2;
+let h = 3;
+if (true) {
+  f
+} else if (false) {
+  g
+} else {
+  h
+}
