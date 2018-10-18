@@ -1,0 +1,7 @@
+if (true) {
+  2
+} else if (false) {
+  6
+} else {
+  1
+}

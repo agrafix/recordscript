@@ -63,6 +63,23 @@ genRecord (Record recHm) =
                      foldl' (\prev y -> JSLCons prev JSNoAnnot (packKv y)) (JSLOne (packKv x)) xs
        pure $ JSObjectLiteral JSNoAnnot contents JSNoAnnot
 
+genIf :: CodeGenM m => If a -> m JSExpression
+genIf (If bodies elseE) =
+    loop bodies
+    where
+      loop xs =
+          case xs of
+            [] -> genExpr elseE
+            (y:ys) ->
+                do rest <- loop ys
+                   packPair y rest
+      packPair (condE, bodyE) elseVal =
+          do cond <- genExpr condE
+             body <- genExpr bodyE
+             pure $
+                 flip (JSExpressionParen JSNoAnnot) JSNoAnnot $
+                 JSExpressionTernary cond JSNoAnnot body JSNoAnnot elseVal
+
 genExpr :: CodeGenM m => Expr a -> m JSExpression
 genExpr expr =
     case expr of
@@ -75,4 +92,5 @@ genExpr expr =
                      map JSArrayElement exprs'
              pure $ JSArrayLiteral JSNoAnnot contents JSNoAnnot
       ERecord (Annotated _ recE) -> genRecord recE
+      EIf (Annotated _ ifE) -> genIf ifE
       _ -> error "undefined"
