@@ -89,6 +89,12 @@ makeIdent i = JSIdentName JSNoAnnot (T.unpack i)
 makeParen :: JSExpression -> JSExpression
 makeParen expr = JSExpressionParen JSNoAnnot expr JSNoAnnot
 
+objAssign :: JSExpression
+objAssign = JSIdentifier JSNoAnnot "Object.assign"
+
+emptyObj :: JSExpression
+emptyObj = JSObjectLiteral JSNoAnnot (JSCTLNone $ makeCommaList []) JSNoAnnot
+
 genFunApp :: CodeGenM m => FunApp a -> m JSExpression
 genFunApp (FunApp receiverE argListE) =
     do recv <- genExpr receiverE
@@ -113,9 +119,14 @@ genRecordMerge :: CodeGenM m => RecordMerge a -> m JSExpression
 genRecordMerge (RecordMerge targetE mergeInEs _) =
     do target <- genExpr targetE
        mergers <- mapM genExpr mergeInEs
-       let objAssign = JSIdentifier JSNoAnnot "Object.assign"
        pure $
            JSCallExpression objAssign JSNoAnnot (makeCommaList (target:mergers)) JSNoAnnot
+
+genCopy :: CodeGenM m => Expr a -> m JSExpression
+genCopy bodyE =
+    do body <- genExpr bodyE
+       pure $
+           JSCallExpression objAssign JSNoAnnot (makeCommaList [emptyObj, body]) JSNoAnnot
 
 genExpr :: CodeGenM m => Expr a -> m JSExpression
 genExpr expr =
@@ -133,4 +144,5 @@ genExpr expr =
       EIf (Annotated _ ifE) -> genIf ifE
       EFunApp (Annotated _ funAppE) -> genFunApp funAppE
       ELambda (Annotated _ lambdaE) -> genLambda lambdaE
+      ECopy e -> genCopy e
       _ -> error "undefined"
