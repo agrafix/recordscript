@@ -179,6 +179,26 @@ genLet (Let boundVar boundE inE) =
          Right (LetStack prevBinds innerExpr) ->
              pure $ Right $ LetStack ((boundVar, boundE) : prevBinds) innerExpr
 
+genBinOp :: CodeGenM m => BinOp a -> m JSExpression
+genBinOp bo =
+    case bo of
+      BoAdd a b -> handleBo JSBinOpPlus a b
+      BoSub a b -> handleBo JSBinOpMinus a b
+      BoMul a b -> handleBo JSBinOpTimes a b
+      BoDiv a b -> handleBo JSBinOpDivide a b
+      BoEq a b -> handleBo JSBinOpEq a b
+      BoNeq a b -> handleBo JSBinOpNeq a b
+      BoAnd a b -> handleBo JSBinOpAnd a b
+      BoOr a b -> handleBo JSBinOpOr a b
+      BoNot aE ->
+          do a <- genExpr aE >>= forceExpr
+             pure $ JSUnaryExpression (JSUnaryOpNot JSNoAnnot) a
+    where
+      handleBo op lE rE =
+          do l <- genExpr lE >>= forceExpr
+             r <- genExpr rE >>= forceExpr
+             pure $ makeParen $ JSExpressionBinary l (op JSNoAnnot) r
+
 genExpr :: CodeGenM m => Expr a -> m (Either JSExpression (LetStack a))
 genExpr expr =
     case expr of
@@ -198,4 +218,5 @@ genExpr expr =
       ELambda (Annotated _ lambdaE) -> Left <$> genLambda lambdaE
       ECopy e -> Left <$> genCopy e
       ELet (Annotated _ letE) -> genLet letE
+      EBinOp (Annotated _ binOpE) -> Left <$> genBinOp binOpE
       _ -> error "undefined"

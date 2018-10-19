@@ -1,9 +1,9 @@
 let f = 1;
 let g = 2;
 let h = 3;
-if (true) {
+if (f - h == g) {
   f
-} else if (false) {
+} else if (!(g * h - g == 23)) {
   g
 } else {
   h
