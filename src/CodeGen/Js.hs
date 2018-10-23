@@ -27,11 +27,11 @@ type CodeGenM m = (MonadState JsState m)
 initState :: JsState
 initState = JsState 0
 
-_freshVar :: CodeGenM m => m Var
-_freshVar =
+freshVar :: CodeGenM m => m T.Text
+freshVar =
     do s <- get
        put $ s { js_varSupply = js_varSupply s + 1 }
-       pure $ Var $ T.pack $ "___var" ++ show (js_varSupply s)
+       pure $ T.pack $ "___var" ++ show (js_varSupply s)
 
 runCodeGenM :: StateT JsState Identity a -> a
 runCodeGenM action = runIdentity $ evalStateT action initState
@@ -95,6 +95,13 @@ objAssign = JSIdentifier JSNoAnnot "Object.assign"
 emptyObj :: JSExpression
 emptyObj = JSObjectLiteral JSNoAnnot (JSCTLNone $ makeCommaList []) JSNoAnnot
 
+bindVar :: T.Text -> JSExpression -> JSStatement
+bindVar varName boundVal =
+    let varDecl =
+            JSVarInitExpression (JSIdentifier JSAnnotSpace (T.unpack varName)) $
+            JSVarInit JSNoAnnot boundVal
+    in JSVariable JSNoAnnot (makeCommaList [varDecl]) (JSSemi JSNoAnnot)
+
 data LetStack a
     = LetStack
     { _ls_binds :: [(A a Var, Expr a)]
@@ -109,10 +116,7 @@ exprToFunBody output =
           do bindVals <-
                  forM binds $ \(Annotated _ (Var varName), boundE) ->
                  do boundVal <- genExpr boundE >>= forceExpr
-                    let varDecl =
-                            JSVarInitExpression (JSIdentifier JSAnnotSpace (T.unpack varName)) $
-                            JSVarInit JSNoAnnot boundVal
-                    pure $ JSVariable JSNoAnnot (makeCommaList [varDecl]) (JSSemi JSNoAnnot)
+                    pure $ bindVar varName boundVal
              let stmts =
                      bindVals ++
                      [ JSReturn JSNoAnnot (Just $ makeParen bodyE) $ JSSemi JSNoAnnot
@@ -199,6 +203,70 @@ genBinOp bo =
              r <- genExpr rE >>= forceExpr
              pure $ makeParen $ JSExpressionBinary l (op JSNoAnnot) r
 
+genCaseCheck :: CodeGenM m => JSExpression -> Pattern a -> m JSExpression
+genCaseCheck checkAgainst pat =
+    case pat of
+      PVar (Annotated _ _) -> pure $ genLiteral $ LBool True
+      PAny _ -> pure $ genLiteral $ LBool True
+      PLit (Annotated _ litE) ->
+          pure $ JSExpressionBinary checkAgainst (JSBinOpEq JSNoAnnot) (genLiteral litE)
+      PRecord (Annotated _ (Record patHm)) ->
+          let handleEntry st (RecordKey recordKey, innerPattern) =
+                  let recAccess =
+                          JSCallExpressionDot (makeParen checkAgainst) JSNoAnnot
+                          (JSIdentifier JSNoAnnot $ T.unpack recordKey)
+                  in case innerPattern of
+                       PVar _ -> pure st
+                       PAny _ -> pure st
+                       PLit _ -> genCaseCheck recAccess innerPattern
+                       PRecord _ -> genCaseCheck recAccess innerPattern
+          in foldM handleEntry (genLiteral $ LBool True) (HM.toList patHm)
+
+genCaseBinds :: CodeGenM m => JSExpression -> Pattern a -> m [JSStatement]
+genCaseBinds checkAgainst pat =
+    case pat of
+      PVar (Annotated _ (Var var)) -> pure [bindVar var checkAgainst]
+      PAny _ -> pure []
+      PLit _ -> pure []
+      PRecord (Annotated _ (Record patHm)) ->
+          let handleEntry st (RecordKey recordKey, innerPattern) =
+                  let recAccess =
+                          JSCallExpressionDot (makeParen checkAgainst) JSNoAnnot
+                          (JSIdentifier JSNoAnnot $ T.unpack recordKey)
+                  in case innerPattern of
+                       PVar (Annotated _ (Var v)) -> pure (st ++ [bindVar v recAccess])
+                       PAny _ -> pure st
+                       PLit _ -> pure st
+                       PRecord _ ->
+                           do moreBinds <- genCaseBinds recAccess innerPattern
+                              pure (st ++ moreBinds)
+          in foldM handleEntry [] (HM.toList patHm)
+
+genCaseSwitch :: CodeGenM m => String -> (Pattern a, Expr a) -> m JSStatement
+genCaseSwitch varName (pat, expr) =
+    do let checkAgainst = JSIdentifier JSNoAnnot varName
+       check <- genCaseCheck checkAgainst pat
+       binds <- genCaseBinds checkAgainst pat
+       bodyE <- genExpr expr >>= forceExpr
+       let body =
+               binds
+               ++ [JSReturn JSNoAnnot (Just $ makeParen bodyE) $ JSSemi JSNoAnnot]
+       pure $ JSIf JSNoAnnot JSNoAnnot check JSNoAnnot
+           (JSStatementBlock JSNoAnnot body JSNoAnnot $ JSSemi JSNoAnnot)
+
+genCase :: CodeGenM m => Case a -> m JSExpression
+genCase caseE =
+    do fresh <- freshVar
+       funBody <- mapM (genCaseSwitch (T.unpack fresh)) (c_cases caseE)
+       let funExpr =
+               makeParen $
+               JSFunctionExpression JSNoAnnot JSIdentNone JSNoAnnot
+               (makeCommaList [JSIdentName JSNoAnnot $ T.unpack fresh]) JSNoAnnot $
+               JSBlock JSNoAnnot funBody JSNoAnnot
+       matchOn <- genExpr (c_matchOn caseE) >>= forceExpr
+       pure $
+           JSCallExpression funExpr JSNoAnnot (makeCommaList [matchOn]) JSNoAnnot
+
 genExpr :: CodeGenM m => Expr a -> m (Either JSExpression (LetStack a))
 genExpr expr =
     case expr of
@@ -219,4 +287,4 @@ genExpr expr =
       ECopy e -> Left <$> genCopy e
       ELet (Annotated _ letE) -> genLet letE
       EBinOp (Annotated _ binOpE) -> Left <$> genBinOp binOpE
-      _ -> error "undefined"
+      ECase (Annotated _ caseE) -> Left <$> genCase caseE

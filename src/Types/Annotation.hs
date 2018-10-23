@@ -36,3 +36,11 @@ data TypedPos
     { tp_pos :: Pos
     , tp_type :: Type
     } deriving (Eq, Ord, Show, Generic, Data, Typeable)
+
+unknownPos :: Pos
+unknownPos =
+    Pos
+    { p_file = "<unknown>"
+    , p_line = Nothing
+    , p_column = Nothing
+    }
