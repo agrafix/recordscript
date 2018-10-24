@@ -83,6 +83,10 @@ data BinOp a
     | BoNeq (Expr a) (Expr a)
     | BoAnd (Expr a) (Expr a)
     | BoOr (Expr a) (Expr a)
+    | BoGt (Expr a) (Expr a)
+    | BoLt (Expr a) (Expr a)
+    | BoGtEq (Expr a) (Expr a)
+    | BoLtEq (Expr a) (Expr a)
     | BoNot (Expr a)
     deriving (Eq, Ord, Show, Generic, Data, Typeable)
 

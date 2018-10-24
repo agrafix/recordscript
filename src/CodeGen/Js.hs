@@ -194,6 +194,10 @@ genBinOp bo =
       BoNeq a b -> handleBo JSBinOpNeq a b
       BoAnd a b -> handleBo JSBinOpAnd a b
       BoOr a b -> handleBo JSBinOpOr a b
+      BoGt a b -> handleBo JSBinOpGt a b
+      BoLt a b -> handleBo JSBinOpLt a b
+      BoGtEq a b -> handleBo JSBinOpGe a b
+      BoLtEq a b -> handleBo JSBinOpLe a b
       BoNot aE ->
           do a <- genExpr aE >>= forceExpr
              pure $ JSUnaryExpression (JSUnaryOpNot JSNoAnnot) a

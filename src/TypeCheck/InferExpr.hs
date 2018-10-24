@@ -503,12 +503,16 @@ inferCase pos caseStmt =
 inferBinOp :: InferM m => Pos -> BinOp Pos -> m (BinOp TypedPos, Type)
 inferBinOp pos bo =
     case bo of
-      BoAdd x y -> binOp BoAdd x y numTypes
-      BoSub x y -> binOp BoSub x y numTypes
-      BoMul x y -> binOp BoMul x y numTypes
-      BoDiv x y -> binOp BoDiv x y numTypes
-      BoAnd x y -> binOp BoAnd x y boolTypes
-      BoOr x y -> binOp BoOr x y boolTypes
+      BoAdd x y -> binOp BoAdd x y numTypes Nothing
+      BoSub x y -> binOp BoSub x y numTypes Nothing
+      BoMul x y -> binOp BoMul x y numTypes Nothing
+      BoDiv x y -> binOp BoDiv x y numTypes Nothing
+      BoGt x y -> binOp BoGt x y numTypes (Just N.tBool)
+      BoLt x y -> binOp BoLt x y numTypes (Just N.tBool)
+      BoGtEq x y -> binOp BoGtEq x y numTypes (Just N.tBool)
+      BoLtEq x y -> binOp BoLtEq x y numTypes (Just N.tBool)
+      BoAnd x y -> binOp BoAnd x y boolTypes Nothing
+      BoOr x y -> binOp BoOr x y boolTypes Nothing
       BoNot x ->
           do lhsE <- inferExpr x
              returnType <- unifyTypes pos (getExprType lhsE) N.tBool
@@ -524,7 +528,7 @@ inferBinOp pos bo =
                _ <-
                    unifyTypes pos (getExprType lhsE) (getExprType rhsE)
                pure (pack lhsE rhsE, forcedType)
-        binOp pack lhs rhs allowedTypes =
+        binOp pack lhs rhs allowedTypes forcedType =
             do lhsE <- inferExpr lhs
                rhsE <- inferExpr rhs
                returnType <-
@@ -532,7 +536,7 @@ inferBinOp pos bo =
                unifyAttempts <-
                    mapM (tryUnifyTypes pos returnType) allowedTypes
                case catMaybes unifyAttempts of
-                 (x:_) -> pure (pack lhsE rhsE, x)
+                 (x:_) -> pure (pack lhsE rhsE, fromMaybe x forcedType)
                  _ -> throwError $ Error pos (EBinOpTypeMismatch returnType allowedTypes)
 
 inferExpr :: InferM m => Expr Pos -> m (Expr TypedPos)

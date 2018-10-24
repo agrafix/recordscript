@@ -1,0 +1,10 @@
+(number) => {
+  let fibRec = (index, prev, current) => {
+    if (index <= 0) {
+      current
+    } else {
+      fibRec(index - 1, prev + current, prev)
+    }
+  };
+  fibRec(number, 1, 0)
+}

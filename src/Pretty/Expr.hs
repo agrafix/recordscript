@@ -96,6 +96,10 @@ prettyBinOp bo =
       BoDiv x y -> binOp "/" x y
       BoEq x y -> binOp "==" x y
       BoNeq x y -> binOp "!=" x y
+      BoGt x y -> binOp ">" x y
+      BoLt x y -> binOp "<" x y
+      BoLtEq x y -> binOp "<=" x y
+      BoGtEq x y -> binOp ">=" x y
       BoAnd x y -> binOp "&&" x y
       BoOr x y -> binOp "||" x y
       BoNot x -> "!" <> prettyExpr x

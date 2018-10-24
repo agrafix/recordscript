@@ -63,6 +63,10 @@ doBinOp bo =
       BoEq x y -> binOp BoEq x y
       BoNeq x y -> binOp BoNeq x y
       BoAnd x y -> binOp BoAnd x y
+      BoGt x y -> binOp BoGt x y
+      BoLt x y -> binOp BoLt x y
+      BoGtEq x y -> binOp BoGtEq x y
+      BoLtEq x y -> binOp BoLtEq x y
       BoOr x y -> binOp BoOr x y
       BoNot x -> BoNot <$> runUniquify x
     where

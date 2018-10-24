@@ -138,6 +138,10 @@ binOpTable =
       ]
     , [ binary "!=" BoNeq
       , binary "==" BoEq
+      , binary "<=" BoLtEq
+      , binary ">=" BoGtEq
+      , binary ">" BoLt
+      , binary "<" BoGt
       ]
     , [ binary "&&" BoAnd
       , binary "||" BoOr

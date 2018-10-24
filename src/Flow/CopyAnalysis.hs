@@ -451,6 +451,10 @@ handleBinOp env tp@(TypedPos pos _) bo =
       BoEq x y -> handleBo BoEq x y
       BoNeq x y -> handleBo BoNeq x y
       BoAnd x y -> handleBo BoAnd x y
+      BoGt x y -> handleBo BoGt x y
+      BoLt x y -> handleBo BoLt x y
+      BoGtEq x y -> handleBo BoGtEq x y
+      BoLtEq x y -> handleBo BoLtEq x y
       BoOr x y -> handleBo BoOr x y
       BoNot e ->
           do (wt, e') <- writePathAnalysis e env
