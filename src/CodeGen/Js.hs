@@ -12,6 +12,7 @@ import Types.Common
 import Control.Monad.State
 import Data.Functor.Identity
 import Data.List
+import Data.Maybe
 import Language.JavaScript.Parser.AST
 import Language.JavaScript.Pretty.Printer
 import qualified Data.HashMap.Strict as HM
@@ -105,6 +106,9 @@ bindVar varName boundVal =
             JSVarInit JSNoAnnot boundVal
     in JSVariable JSNoAnnot (makeCommaList [varDecl]) (JSSemi JSNoAnnot)
 
+stmtBlock :: [JSStatement] -> JSStatement
+stmtBlock innerBody = JSStatementBlock JSNoAnnot innerBody JSNoAnnot (JSSemi JSNoAnnot)
+
 data LetStack a
     = LetStack
     { _ls_binds :: [(A a Var, Expr a)]
@@ -128,23 +132,59 @@ genTcoLambdaWrapper (Lambda args _) innerLoop =
            makeParen $
            JSFunctionExpression JSNoAnnot JSIdentNone JSNoAnnot params JSNoAnnot bodyBlock
 
-tcoOptimize :: CodeGenM m => Var -> Lambda a -> m JSExpression
-tcoOptimize selfName l@(Lambda argLabels body) =
+handleTailCall :: CodeGenM m => Var -> Lambda a -> Expr a -> m (Maybe [JSStatement])
+handleTailCall selfName (Lambda argLabels _) body =
     case body of
       EFunApp (Annotated _ (FunApp rcv argVals)) ->
           case rcv of
             EVar (Annotated _ var) | var == selfName ->
-                -- this is a dumb never ending loop
                 do assignments <-
                        forM (zip argLabels argVals) $ \((Annotated _ (Var x)), val) ->
-                       do valE <- genExpr val >>= forceExpr
-                          pure $
-                              JSExpressionStatement
-                              (JSAssignExpression (makeIdentE x) (JSAssign JSNoAnnot) valE)
-                              (JSSemi JSNoAnnot)
-                   genTcoLambdaWrapper l assignments
-            _ -> genLambda l
-      _ -> genLambda l
+                       do tempVar <- freshVar
+                          valE <- genExpr val >>= forceExpr
+                          let computeStmt =
+                                  bindVar tempVar valE
+                              assignStmt =
+                                  JSExpressionStatement
+                                  (JSAssignExpression (makeIdentE x) (JSAssign JSNoAnnot) (makeIdentE tempVar))
+                                  (JSSemi JSNoAnnot)
+                          pure (computeStmt, assignStmt)
+                   let (computes, assigns) = unzip assignments
+                   pure $ Just (computes ++ assigns)
+            _ -> pure Nothing
+      _ -> pure Nothing
+
+handleIf :: CodeGenM m => Var -> Lambda a -> WithA a If -> m JSExpression
+handleIf selfName lambda (Annotated a (If bodies elseE)) =
+    do let allBodies = bodies ++ [(ELit (Annotated a $ LBool True), elseE)]
+       withTailCalls <-
+           forM allBodies $ \(checkE, bodyE) ->
+           do isTailCall <- handleTailCall selfName lambda bodyE
+              pure (checkE, bodyE, isTailCall)
+       let hasTailCall = isJust $ find (\(_, _, x) -> isJust x) withTailCalls
+       compiledIf <-
+           forM withTailCalls $ \(checkE, bodyE, tailCall) ->
+           do check <- genExpr checkE >>= forceExpr
+              ifBody <-
+                  case tailCall of
+                    Nothing -> genExpr bodyE >>= exprToFunBody
+                    Just x -> pure x
+              pure $
+                  JSIf JSNoAnnot JSNoAnnot check JSNoAnnot $ stmtBlock ifBody
+       if hasTailCall
+          then genTcoLambdaWrapper lambda compiledIf
+          else genLambda lambda
+
+tcoOptimize :: CodeGenM m => Var -> Lambda a -> m JSExpression
+tcoOptimize selfName l@(Lambda _ body) =
+    do handledCall <- handleTailCall selfName l body
+       case handledCall of
+         Just tc -> genTcoLambdaWrapper l tc
+         Nothing ->
+             case body of
+               EIf ifE -> handleIf selfName l ifE
+               -- TODO: handle more tail call cases
+               _ -> genLambda l
 
 compileLetBind :: CodeGenM m => A a Var -> Expr a -> m JSExpression
 compileLetBind (Annotated _ var) expr =

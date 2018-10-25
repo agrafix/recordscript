@@ -1,1 +1,1 @@
-(function(number){var fibRec=(function(index,prev,current){return(((index<=0)?current:fibRec((index-1),(prev+current),prev)));});return(fibRec(number,1,0));})
+(function(number){var fibRec=(function(index,prev,current){do{if((index<=0)){return(current);};if(true){var ___var0=(index-1);var ___var1=(prev+current);var ___var2=prev;index=___var0;prev=___var1;current=___var2;};}while(true);});return(fibRec(number,1,0));})
