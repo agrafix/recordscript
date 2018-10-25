@@ -92,6 +92,9 @@ makeParen expr = JSExpressionParen JSNoAnnot expr JSNoAnnot
 objAssign :: JSExpression
 objAssign = JSIdentifier JSNoAnnot "Object.assign"
 
+makeIdentE :: T.Text -> JSExpression
+makeIdentE i = JSIdentifier JSNoAnnot (T.unpack i)
+
 emptyObj :: JSExpression
 emptyObj = JSObjectLiteral JSNoAnnot (JSCTLNone $ makeCommaList []) JSNoAnnot
 
@@ -108,14 +111,56 @@ data LetStack a
     , _ls_expr :: JSExpression
     } deriving (Show, Eq)
 
+genTcoLambdaWrapper :: CodeGenM m => Lambda a -> [JSStatement] -> m JSExpression
+genTcoLambdaWrapper (Lambda args _) innerLoop =
+    do let params =
+               makeCommaList $
+               map (\(Annotated _ (Var x)) -> makeIdent x) args
+           wrapper =
+               [ JSDoWhile JSNoAnnot
+                 (JSStatementBlock JSNoAnnot innerLoop JSNoAnnot JSSemiAuto)
+                 JSNoAnnot JSNoAnnot
+                 (JSLiteral JSNoAnnot "true") JSNoAnnot (JSSemi JSNoAnnot)
+               ]
+       let bodyBlock =
+               JSBlock JSNoAnnot wrapper JSNoAnnot
+       pure $
+           makeParen $
+           JSFunctionExpression JSNoAnnot JSIdentNone JSNoAnnot params JSNoAnnot bodyBlock
+
+tcoOptimize :: CodeGenM m => Var -> Lambda a -> m JSExpression
+tcoOptimize selfName l@(Lambda argLabels body) =
+    case body of
+      EFunApp (Annotated _ (FunApp rcv argVals)) ->
+          case rcv of
+            EVar (Annotated _ var) | var == selfName ->
+                -- this is a dumb never ending loop
+                do assignments <-
+                       forM (zip argLabels argVals) $ \((Annotated _ (Var x)), val) ->
+                       do valE <- genExpr val >>= forceExpr
+                          pure $
+                              JSExpressionStatement
+                              (JSAssignExpression (makeIdentE x) (JSAssign JSNoAnnot) valE)
+                              (JSSemi JSNoAnnot)
+                   genTcoLambdaWrapper l assignments
+            _ -> genLambda l
+      _ -> genLambda l
+
+compileLetBind :: CodeGenM m => A a Var -> Expr a -> m JSExpression
+compileLetBind (Annotated _ var) expr =
+    case expr of
+      ELambda (Annotated _ lambdaE) ->
+          tcoOptimize var lambdaE
+      _ -> genExpr expr >>= forceExpr
+
 exprToFunBody :: CodeGenM m => Either JSExpression (LetStack a) -> m [JSStatement]
 exprToFunBody output =
     case output of
       Left e -> pure [JSReturn JSNoAnnot (Just $ makeParen e) $ JSSemi JSNoAnnot]
       Right (LetStack binds bodyE) ->
           do bindVals <-
-                 forM binds $ \(Annotated _ (Var varName), boundE) ->
-                 do boundVal <- genExpr boundE >>= forceExpr
+                 forM binds $ \(v@(Annotated _ (Var varName)), boundE) ->
+                 do boundVal <- compileLetBind v boundE
                     pure $ bindVar varName boundVal
              let stmts =
                      bindVals ++

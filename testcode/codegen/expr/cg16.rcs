@@ -1,0 +1,6 @@
+(number) => {
+  let infiniteRec = (index) => {
+    infiniteRec(index + 1)
+  };
+  infiniteRec(number)
+}
