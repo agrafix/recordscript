@@ -1,5 +1,7 @@
 {-# LANGUAGE StrictData #-}
-module Desugar.UniqueVars where
+module Desugar.UniqueVars
+    ( runUniquify, runUniqueM )
+where
 
 import Types.Annotation
 import Types.Ast
@@ -7,6 +9,7 @@ import Types.Common
 
 import Control.Monad
 import Control.Monad.State
+import Data.Functor.Identity
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
@@ -19,6 +22,8 @@ data UniqueState
 
 type UniqueM m = (MonadState UniqueState m)
 
+runUniqueM :: StateT UniqueState Identity a -> a
+runUniqueM action = runIdentity $ evalStateT action $ UniqueState 0 mempty
 
 scoped :: UniqueM m => StateT UniqueState m a -> m a
 scoped go =
