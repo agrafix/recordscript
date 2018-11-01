@@ -23,6 +23,7 @@ data Error
    = EParseError T.Text
    | ETypeError T.Text
    | EFlowError T.Text
+   deriving (Show, Eq)
 
 compileCode :: T.Text -> Either Error T.Text
 compileCode inputCode =
