@@ -39,7 +39,7 @@ uniquify q@(Var x) =
          Just y -> pure y
          Nothing ->
              do let idx = us_varSupply s
-                    v' = Var $ T.pack $ T.unpack x ++ "@@" ++ show idx
+                    v' = Var $ T.pack $ T.unpack x ++ "___" ++ show idx
                 put $
                     s
                     { us_varSupply = us_varSupply s + 1
