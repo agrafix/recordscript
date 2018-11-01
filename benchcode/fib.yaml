@@ -1,16 +1,17 @@
 name: fib
 recordscript:
   setup: |
-    (number) => {
-      let fibRec = (index, prev, current) => {
-        if (index <= 0) {
-          current
-        } else {
-          fibRec(index - 1, prev + current, prev)
-        }
-      };
+    let fibRec = (index, prev, current) => {
+      if (index <= 0) {
+        current
+      } else {
+        fibRec(index - 1, prev + current, prev)
+      }
+    };
+    let fib = (number) => {
       fibRec(number, 1, 0)
-    }
+    };
+    fib
   run: |
     recordscript(50)
   expected: "12586269025"
