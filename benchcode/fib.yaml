@@ -13,8 +13,8 @@ recordscript:
     };
     fib
   run: |
-    recordscript(50)
-  expected: "12586269025"
+    recordscript(35)
+  expected: "9227465"
 javascript:
   setup: |
     function (number) {
@@ -28,5 +28,22 @@ javascript:
       return next;
     }
   run: |
-    javascript(50)
-  expected: "12586269025"
+    javascript(35)
+  expected: "9227465"
+purescript:
+  setup: |
+    module Main where
+
+    import Prelude
+
+    fibRec :: Int -> Int -> Int -> Int
+    fibRec index prev current =
+      if index <= 0
+        then current
+        else fibRec (index - 1) (prev + current) prev
+
+    fib :: Int -> Int
+    fib number = fibRec number 1 0
+  run: |
+    purescript.fib(35)
+  expected: "9227465"
