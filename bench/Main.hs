@@ -34,6 +34,7 @@ data Benchmark
     , b_recordscript :: BenchCase
     , b_javascript :: Maybe BenchCase
     , b_purescript :: Maybe BenchCase
+    , b_elm :: Maybe BenchCase
     } deriving (Show, Eq)
 
 instance FromJSON Benchmark where
@@ -44,6 +45,7 @@ instance FromJSON Benchmark where
         <*> v .: "recordscript"
         <*> v .:? "javascript"
         <*> v .:? "purescript"
+        <*> v .:? "elm"
 
 
 data PreparedBenchmark
@@ -59,6 +61,15 @@ makePureScriptBenchmark bc =
     PreparedBenchmark
     { pb_name = "purescript"
     , pb_setup = "require('./output/Main/index');"
+    , pb_run = bc_run bc
+    , pb_expected = bc_expected bc
+    }
+
+makeElmBenchmark :: BenchCase -> PreparedBenchmark
+makeElmBenchmark bc =
+    PreparedBenchmark
+    { pb_name = "elm"
+    , pb_setup = "require('./elm').elm;"
     , pb_run = bc_run bc
     , pb_expected = bc_expected bc
     }
@@ -123,6 +134,7 @@ renderBenchmark filename pbench =
 main :: IO ()
 main =
     do allFiles <- listDirectory "benchcode"
+       elmProjectFile <- T.readFile "misc/elm-project.json"
        let getFilesWithExt ext = filter (\fp -> takeExtension fp == ext)
            benchs = getFilesWithExt ".yaml" allFiles
        forM_ benchs $ \benchmarkFile ->
@@ -135,6 +147,7 @@ main =
                       catMaybes
                       [ makeJavaScriptBenchmark <$> b_javascript benchmark
                       , makePureScriptBenchmark <$> b_purescript benchmark
+                      , makeElmBenchmark <$> b_elm benchmark
                       , Just . makeRecordScriptBenchmark $ b_recordscript benchmark
                       ]
                   js = renderBenchmark (T.pack benchmarkFile) compiled
@@ -144,12 +157,24 @@ main =
                      T.putStrLn "Writing benchmark file ..."
                      T.writeFile (dir </> "bench.js") js
                      T.putStrLn "Installing dependencies ..."
-                     run "npm install chuhai@1.2.0 purescript@0.12.0 bower@1.8.4"
+                     run "npm install chuhai@1.2.0 purescript@0.12.0 bower@1.8.4 elm@0.19.0-bugfix2"
                      case b_purescript benchmark of
                        Just bench ->
                            do run "node_modules/.bin/bower install purescript-prelude"
                               T.writeFile (dir </> "pure.purs") (bc_setup bench)
                               run "node_modules/.bin/purs compile \"bower_components/*/src/**/*.purs\" pure.purs"
+                       Nothing -> pure ()
+                     case b_elm benchmark of
+                       Just bench ->
+                           do T.writeFile (dir </> "elm.json") elmProjectFile
+                              createDirectoryIfMissing True (dir </> "src")
+                              T.writeFile (dir </> "src" </> "Main.elm") (bc_setup bench)
+                              run "node_modules/.bin/elm make src/Main.elm --output=elm_raw.js --optimize"
+                              rawContent <- T.readFile (dir </> "elm_raw.js")
+                              let content =
+                                      T.replace "author$project$Main$export" "scope.elm" $
+                                      T.replace "var author$project$Main$export = function" "scope.elm = function" rawContent
+                              T.writeFile (dir </> "elm.js") content
                        Nothing -> pure ()
                      T.putStrLn "Benchmarking ..."
                      run "node bench.js"

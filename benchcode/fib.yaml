@@ -47,3 +47,21 @@ purescript:
   run: |
     purescript.fib(35)
   expected: "9227465"
+elm:
+  setup: |
+    import Basics
+    import Html exposing (text)
+
+    fibRec : Int -> Int -> Int -> Int
+    fibRec index prev current =
+      if index <= 0
+      then current
+      else fibRec (index - 1) (prev + current) prev
+
+    export : Int -> Int
+    export number = fibRec number 1 0
+
+    main = text (String.fromInt <| export 10)
+  run: |
+    elm(35)
+  expected: "9227465"
