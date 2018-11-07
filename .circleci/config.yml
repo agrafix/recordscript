@@ -12,6 +12,12 @@ jobs:
           name: stack setup
           command: 'stack setup'
       - run:
+          name: setup javascript dependencies
+          command: |
+            curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.33.11/install.sh | bash
+            nvm install 8.10.0
+            nvm use 8.10.0
+      - run:
           name: stack install dependencies
           command: 'stack build --test --bench --only-dependencies'
       - save_cache:
@@ -25,6 +31,9 @@ jobs:
       - run:
           name: stack test
           command: 'stack test --fast'
+      - run:
+          name: benchmark check
+          command: 'stack bench --fast --benchmark-arguments "--check-only"'
 
 workflows:
   version: 2
