@@ -79,7 +79,7 @@ funAppTransform f fa =
     , fa_args = fmap f (fa_args fa)
     }
 
-funAppTransformM :: Monad m => (Expr a -> m (Expr b)) -> FunApp a -> m (FunApp b)
+funAppTransformM :: (Show a, Show b, Monad m) => (Expr a -> m (Expr b)) -> FunApp a -> m (FunApp b)
 funAppTransformM f fa =
     f (fa_receiver fa) >>= \recv ->
     mapM f (fa_args fa) >>= \args ->

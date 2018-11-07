@@ -382,7 +382,17 @@ getFunType :: AnalysisM m => Expr TypedPos -> FunInfo -> m (Maybe FunType)
 getFunType expr funInfo =
     case expr of
       ELambda (Annotated _ lambda) -> Just . FtFun <$> argumentDependency funInfo lambda
-      EVar (Annotated _ var) -> pure $ HM.lookup var (unFunInfo funInfo)
+      EVar (Annotated tp var) ->
+          case HM.lookup var (unFunInfo funInfo) of
+            Nothing ->
+                case tp_type tp of
+                  TFun argTypes _ ->
+                      pure $ Just $ FtFun $ flip map argTypes $ \_ ->
+                      -- TODO: unseen variable with function type is likely a function argument.
+                      -- For now, we assume the "worst" in that case - everything is written.
+                      Just (Var "dummy", [], CaBanned, WoWrite, PIn)
+                  _ -> pure Nothing
+            Just funType -> pure $ Just funType
       ERecordAccess (Annotated _ (RecordAccess r rk)) ->
           getFunType r funInfo >>= \res ->
           case res of
@@ -623,7 +633,8 @@ handleFunApp ::
 handleFunApp env tp (FunApp rcvE args) =
     getFunType rcvE (e_funInfo env) >>= \funType ->
     case funType of
-      Nothing -> error "Can't call function"
+      Nothing ->
+          error $ "Can't call function. " <> show rcvE <> " has no fun info!"
       Just FtSelf ->
           -- don't care about writes to self
           pure (WtPrim PwtNone, EFunApp (Annotated tp (FunApp rcvE args)))

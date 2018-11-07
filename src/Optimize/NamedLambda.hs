@@ -5,13 +5,12 @@ where
 import Types.Annotation
 import Types.Ast
 import Types.Common
-
 import Util.NameMonad
 
 runNamedLambda :: NameMonad a -> a
 runNamedLambda = runNameM "lambda"
 
-handleLet :: NameM m => Let a -> m (Let a)
+handleLet :: (Show a, NameM m) => Let a -> m (Let a)
 handleLet (Let boundVar boundExpr inExpr) =
     do boundExpr' <-
            case boundExpr of
@@ -19,9 +18,10 @@ handleLet (Let boundVar boundExpr inExpr) =
                  do body' <- nameLambdas body
                     pure $ ELambda $ Annotated x (Lambda args body')
              _ -> nameLambdas boundExpr
-       pure $ Let boundVar boundExpr' inExpr
+       inExpr' <- nameLambdas inExpr
+       pure $ Let boundVar boundExpr' inExpr'
 
-handleLambda :: NameM m => a -> Lambda a -> m (Expr a)
+handleLambda :: (Show a, NameM m) => a -> Lambda a -> m (Expr a)
 handleLambda ann (Lambda args body) =
     do var <- freshVar
        body' <- nameLambdas body
@@ -33,7 +33,7 @@ handleLambda ann (Lambda args body) =
            , l_in = EVar (Annotated ann var)
            }
 
-nameLambdas :: NameM m => Expr a -> m (Expr a)
+nameLambdas :: (Show a, NameM m) => Expr a -> m (Expr a)
 nameLambdas expr =
     case expr of
       ELit _ -> pure expr

@@ -1,0 +1,4 @@
+let doAction = (number, action) => {
+  action(number + 1)
+};
+doAction

@@ -1,0 +1,8 @@
+code: |
+  let doAction = (number, action) => {
+    action(number + 1)
+  };
+  doAction(1, (x) => { x + 1 })
+javascript: |
+  (function(){var doAction___0=(function(number___1,action___2){return(action___2((number___1+1)));});return(doAction___0(1,(function(){var lambda0=(function(x___3){return((x___3+1));});return(lambda0);})()));})()
+output: "3"

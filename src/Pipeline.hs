@@ -10,7 +10,7 @@ import Flow.CopyAnalysis (runAnalysisM, writePathAnalysis, prettyCopyError, empt
 import Optimize.NamedLambda
 import Parser.Expr
 import Parser.Shared
-import TypeCheck.InferExpr (runInferM, inferExpr, prettyInferError)
+import TypeCheck.InferExpr (runInferM, inferExpr, prettyInferError, resolvePass)
 
 import Data.Bifunctor
 import Data.Functor.Identity
@@ -32,12 +32,11 @@ compileCode inputCode =
            first (EParseError . T.pack . parseErrorPretty) $
            executeParser "<test>" (exprP <* eof) inputCode
        let uniqueResult = runUniqueM $ runUniquify parseResult
-       typeCheckResult <-
+       (typeCheckResult, inferState) <-
            first (ETypeError . prettyInferError) $
-           second fst $
            runIdentity $ runInferM (inferExpr uniqueResult)
        namedLambdas <-
-           pure $ runNamedLambda (nameLambdas typeCheckResult)
+           pure $ runNamedLambda (nameLambdas $ resolvePass typeCheckResult inferState)
        flowResult <-
            first (EFlowError . prettyCopyError) $
            second snd $

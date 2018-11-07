@@ -1,0 +1,3 @@
+(number, action) => {
+    action(number + 1)
+}
