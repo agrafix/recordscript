@@ -110,3 +110,8 @@ tests:
       - hspec
       - directory
       - filepath
+      - temporary
+      - typed-process
+      - bytestring
+      - yaml
+      - aeson

@@ -7,6 +7,7 @@ where
 import CodeGen.Js (genExpr, forceExpr, runCodeGenM, renderToText)
 import Desugar.UniqueVars
 import Flow.CopyAnalysis (runAnalysisM, writePathAnalysis, prettyCopyError, emptyEnv)
+import Optimize.NamedLambda
 import Parser.Expr
 import Parser.Shared
 import TypeCheck.InferExpr (runInferM, inferExpr, prettyInferError)
@@ -35,9 +36,11 @@ compileCode inputCode =
            first (ETypeError . prettyInferError) $
            second fst $
            runIdentity $ runInferM (inferExpr uniqueResult)
+       namedLambdas <-
+           pure $ runNamedLambda (nameLambdas typeCheckResult)
        flowResult <-
            first (EFlowError . prettyCopyError) $
            second snd $
-           runAnalysisM (writePathAnalysis typeCheckResult emptyEnv)
+           runAnalysisM (writePathAnalysis namedLambdas emptyEnv)
        pure $ TL.toStrict $ renderToText $
            JSAstExpression (runCodeGenM (genExpr flowResult >>= forceExpr)) JSNoAnnot

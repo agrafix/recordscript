@@ -2,6 +2,7 @@ import Test.CodeGenSpec
 import Test.CopyAnalysisSpec
 import Test.Helpers
 import Test.ParserPrettySpec
+import Test.PipelineSpec
 
 import Parser.Expr
 import Parser.Shared
@@ -72,3 +73,4 @@ main =
        describe "Write target" makeWriteTargetTests
        describe "Arg dependency" makeArgDepTests
        describe "Codegen" $ makeCodeGenTests "testcode/codegen/expr"
+       describe "Full pipeline" runPipelineSpec

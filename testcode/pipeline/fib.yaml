@@ -1,0 +1,15 @@
+code: |
+  let fibRec = (index, prev, current) => {
+    if (index <= 0) {
+      current
+    } else {
+      fibRec(index - 1, prev + current, prev)
+    }
+  };
+  let fib = (number) => {
+    fibRec(number, 1, 0)
+  };
+  fib(25)
+javascript: |
+  (function(){var fibRec___0=(function(index___1,prev___2,current___3){do{if((index___1<=0)){return(current___3);};if(true){var ___var0=(index___1-1);var ___var1=(prev___2+current___3);var ___var2=prev___2;index___1=___var0;prev___2=___var1;current___3=___var2;};}while(true);});var fib___4=(function(number___5){return(fibRec___0(number___5,1,0));});return(fib___4(25));})()
+output: "75025"

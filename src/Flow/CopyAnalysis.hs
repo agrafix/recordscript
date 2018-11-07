@@ -15,11 +15,11 @@ import Types.Annotation
 import Types.Ast
 import Types.Common
 import Types.Types
+import Util.NameMonad
 
 import Control.Monad.Except
 import Control.Monad.State
 import Data.Bifunctor
-import Data.Functor.Identity
 import Data.List (foldl', sortOn, nub, find)
 import Data.Maybe
 import Data.Monoid
@@ -60,23 +60,9 @@ prettyErrorMessage em =
       keyPath ks =
           "." <> T.intercalate "." (map unRecordKey ks)
 
-data AnalysisState
-    = AnalysisState
-    { as_varSupply :: Int
-    } deriving (Show, Eq, Ord)
-
-initAnalysisState :: AnalysisState
-initAnalysisState = AnalysisState 0
-
-freshVar :: AnalysisM m => m Var
-freshVar =
-    do s <- get
-       put $ s { as_varSupply = as_varSupply s + 1 }
-       pure $ Var $ T.pack $ "internal" ++ show (as_varSupply s)
-
-type AnalysisM m = (MonadPlus m, MonadError Error m, MonadState AnalysisState m)
-runAnalysisM :: ExceptT Error (StateT AnalysisState Identity) a -> Either Error a
-runAnalysisM action = runIdentity $ evalStateT (runExceptT action) initAnalysisState
+type AnalysisM m = (MonadPlus m, MonadError Error m, NameM m)
+runAnalysisM :: ExceptT Error NameMonad a -> Either Error a
+runAnalysisM action = runNameM "internal" (runExceptT action)
 
 data CopyAllowed
     = CaAllowed
