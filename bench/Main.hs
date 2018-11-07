@@ -7,6 +7,7 @@ import Data.Maybe
 import Data.Monoid
 import Data.Yaml
 import System.Directory
+import System.Environment
 import System.FilePath
 import System.IO.Temp
 import System.Process.Typed
@@ -95,10 +96,19 @@ makeJavaScriptBenchmark bc =
     , pb_expected = bc_expected bc
     }
 
-renderBenchmark :: T.Text -> [PreparedBenchmark] -> T.Text
-renderBenchmark filename pbench =
-    T.unlines $ header ++ setup ++ tests ++ prerun ++ benchs ++ end
+data RunType
+    = FullRun
+    | CheckOnly
+    deriving (Show, Eq)
+
+renderBenchmark :: RunType -> T.Text -> [PreparedBenchmark] -> T.Text
+renderBenchmark runType filename pbench =
+    T.unlines $ header ++ setup ++ tests ++ benchCode
     where
+      benchCode =
+          case runType of
+            FullRun -> prerun ++ benchs ++ end
+            CheckOnly -> []
       header =
           [ "var suite = require('chuhai');"
           ]
@@ -119,11 +129,13 @@ renderBenchmark filename pbench =
           case pb_expected pb of
             Just expected ->
                 [ "if (" <> pb_run pb <> " !== " <> expected <> ") {"
-                , "  console.log('Test of " <> pb_name pb <> " has failed!')"
+                , "  console.log('✗ Test of " <> pb_name pb <> " has failed!')"
+                , "  console.log('> Got:')"
                 , "  console.log(" <> pb_run pb <> ");"
+                , "  console.log('> Expected:')"
                 , "  console.log(" <> expected <> ");"
                 , "} else {"
-                , "  console.log('Test of " <> pb_name pb <> " has passed')"
+                , "  console.log('✔︎ Test of " <> pb_name pb <> " has passed')"
                 , "}"
                 ]
             Nothing -> []
@@ -131,8 +143,8 @@ renderBenchmark filename pbench =
           [ "});"
           ]
 
-main :: IO ()
-main =
+runBenchmarks :: RunType -> IO ()
+runBenchmarks runType =
     do allFiles <- listDirectory "benchcode"
        elmProjectFile <- T.readFile "misc/elm-project.json"
        let getFilesWithExt ext = filter (\fp -> takeExtension fp == ext)
@@ -150,7 +162,7 @@ main =
                       , makeElmBenchmark <$> b_elm benchmark
                       , Just . makeRecordScriptBenchmark $ b_recordscript benchmark
                       ]
-                  js = renderBenchmark (T.pack benchmarkFile) compiled
+                  js = renderBenchmark runType (T.pack benchmarkFile) compiled
               withSystemTempDirectory "benchmark" $ \dir ->
                   do let run cmd =
                              runProcess_ $ setWorkingDir dir $ shell cmd
@@ -178,3 +190,10 @@ main =
                        Nothing -> pure ()
                      T.putStrLn "Benchmarking ..."
                      run "node bench.js"
+
+main :: IO ()
+main =
+    do args <- getArgs
+       case args of
+         ["--check-only"] -> runBenchmarks CheckOnly
+         _ -> runBenchmarks FullRun
