@@ -35,7 +35,11 @@ jobs:
           command: 'stack test --fast'
       - run:
           name: benchmark check
-          command: 'stack bench --fast --benchmark-arguments "--check-only"'
+          command: |
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            nvm use 8.10.0
+            stack bench --fast --benchmark-arguments "--check-only"
 
 workflows:
   version: 2
