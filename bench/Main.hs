@@ -172,7 +172,7 @@ runBenchmarks runType =
                      run "npm install chuhai@1.2.0 purescript@0.12.0 bower@1.8.4 elm@0.19.0-bugfix2"
                      case b_purescript benchmark of
                        Just bench ->
-                           do run "node_modules/.bin/bower install purescript-prelude"
+                           do run "node_modules/.bin/bower --allow-root install purescript-prelude"
                               T.writeFile (dir </> "pure.purs") (bc_setup bench)
                               run "node_modules/.bin/purs compile \"bower_components/*/src/**/*.purs\" pure.purs"
                        Nothing -> pure ()
