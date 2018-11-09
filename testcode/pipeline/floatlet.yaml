@@ -1,0 +1,8 @@
+code: |
+  let z = 1;
+  let y = () => {let m = 5;z + 6 + m};
+  let x = 5 + z;
+  x + y()
+javascript: |
+  (function(){var z___0=1;var x___3=(5+z___0);var m___2=5;var y___1=(function(){return(((z___0+6)+m___2));});return((x___3+y___1()));})()
+output: "18"

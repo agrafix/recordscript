@@ -53,6 +53,11 @@ ifTransformM f i =
     , if_else = elseE
     }
 
+ifApplyM :: Monad m => (Expr a -> m ()) -> If a -> m ()
+ifApplyM f i =
+    do mapM_ (\(a, b) -> (,) <$> f a <*> f b) (if_bodies i)
+       f (if_else i)
+
 data Let a
     = Let
     { l_boundVar :: A a Var
@@ -79,7 +84,7 @@ funAppTransform f fa =
     , fa_args = fmap f (fa_args fa)
     }
 
-funAppTransformM :: (Show a, Show b, Monad m) => (Expr a -> m (Expr b)) -> FunApp a -> m (FunApp b)
+funAppTransformM :: (Monad m) => (Expr a -> m (Expr b)) -> FunApp a -> m (FunApp b)
 funAppTransformM f fa =
     f (fa_receiver fa) >>= \recv ->
     mapM f (fa_args fa) >>= \args ->
@@ -87,6 +92,11 @@ funAppTransformM f fa =
     { fa_receiver = recv
     , fa_args = args
     }
+
+funAppApplyM :: (Monad m) => (Expr a -> m ()) -> FunApp a -> m ()
+funAppApplyM f fa =
+    do f (fa_receiver fa)
+       mapM_ f (fa_args fa)
 
 data Case a
     = Case
@@ -104,6 +114,11 @@ caseTransform f i =
 caseTransformM :: Monad m => (Expr a -> m (Expr a)) -> Case a -> m (Case a)
 caseTransformM f i =
     Case <$> f (c_matchOn i) <*> mapM (\(a, b) -> (,) <$> pure a <*> f b) (c_cases i)
+
+caseApplyM :: Monad m => (Expr a -> m ()) -> Case a -> m ()
+caseApplyM f i =
+    do f (c_matchOn i)
+       mapM_ (\(a, b) -> (,) <$> pure a <*> f b) (c_cases i)
 
 data RecordMerge a
     = RecordMerge
@@ -131,6 +146,11 @@ recordMergeTransformM f rm =
     , rm_noCopy = rm_noCopy rm
     }
 
+recordMergeApplyM :: Monad m => (Expr a -> m ()) -> RecordMerge a -> m ()
+recordMergeApplyM f rm =
+    do f (rm_target rm)
+       mapM_ f (rm_mergeIn rm)
+
 data RecordAccess a
     = RecordAccess
     { ra_record :: Expr a
@@ -151,6 +171,10 @@ recordAccessTransformM f ra =
     { ra_record = record
     , ra_field = ra_field ra
     }
+
+recordAccessApplyM :: Monad m => (Expr a -> m ()) -> RecordAccess a -> m ()
+recordAccessApplyM f ra =
+    f (ra_record ra)
 
 data BinOp a
     = BoAdd (Expr a) (Expr a)
@@ -201,6 +225,23 @@ binOpTransformM f bo =
       BoGtEq a b -> BoGtEq <$> f a <*> f b
       BoLtEq a b -> BoLtEq <$> f a <*> f b
       BoNot x -> BoNot <$> f x
+
+binOpApplyM :: Monad m => (Expr a -> m ()) -> BinOp a -> m ()
+binOpApplyM f bo =
+    case bo of
+      BoAdd a b -> f a >> f b
+      BoSub a b -> f a >> f b
+      BoMul a b -> f a >> f b
+      BoDiv a b -> f a >> f b
+      BoEq a b -> f a >> f b
+      BoOr a b -> f a >> f b
+      BoGt a b -> f a >> f b
+      BoLt a b -> f a >> f b
+      BoNeq a b -> f a >> f b
+      BoAnd a b -> f a >> f b
+      BoGtEq a b -> f a >> f b
+      BoLtEq a b -> f a >> f b
+      BoNot x -> f x
 
 data Expr a
     = ELit (A a Literal)

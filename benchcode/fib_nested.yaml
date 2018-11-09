@@ -1,0 +1,65 @@
+name: fib_nested
+recordscript:
+  setup: |
+    let fib = (number) => {
+      let fibRec = (index, prev, current) => {
+        if (index <= 0) {
+          current
+        } else {
+          fibRec(index - 1, prev + current, prev)
+        }
+      };
+      fibRec(number, 1, 0)
+    };
+    fib
+  run: |
+    recordscript(35)
+  expected: "9227465"
+javascript:
+  setup: |
+    function (number) {
+      var previous_first = 0, previous_second = 1, next = 1;
+
+      for(var i = 2; i <= number; i++) {
+        next = previous_first + previous_second;
+        previous_first = previous_second;
+        previous_second = next;
+      }
+      return next;
+    }
+  run: |
+    javascript(35)
+  expected: "9227465"
+purescript:
+  setup: |
+    module Main where
+
+    import Prelude
+
+    fib :: Int -> Int
+    fib number =
+      let fibRec index prev current =
+            if index <= 0
+            then current
+            else fibRec (index - 1) (prev + current) prev
+      in fibRec number 1 0
+  run: |
+    purescript.fib(35)
+  expected: "9227465"
+elm:
+  setup: |
+    import Basics
+    import Html exposing (text)
+
+    export : Int -> Int
+    export number =
+      let fibRec index prev current =
+            if index <= 0
+            then current
+            else fibRec (index - 1) (prev + current) prev
+      in fibRec number 1 0
+
+    main = text (String.fromInt <| export 10)
+  run: |
+    elm(35)
+  expected: "9227465"
