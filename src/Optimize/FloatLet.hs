@@ -144,6 +144,22 @@ freeIf ann ifE =
            , EIf $ Annotated ann $ ifE { if_bodies = bodies, if_else = else'}
            )
 
+freeCase :: Monad m => a -> Case a -> m (OpenLet a, Expr a)
+freeCase ann caseE =
+    do (ol1, matchOn) <- floatLet (c_matchOn caseE)
+       (ols, cases) <-
+           fmap unzip $
+           forM (c_cases caseE) $ \(pat, expr) ->
+           do let patVars = S.fromList $ patternVars pat
+              (olE, expr') <- floatLet expr
+              if not (S.null (patVars `S.intersection` ol_free olE))
+                 then pure (emptyOpenLet, (pat, applyOpenLet olE expr'))
+                 else pure (olE, (pat, expr'))
+       pure
+           ( mconcat (ol1 : ols)
+           , ECase $ Annotated ann $ caseE { c_matchOn = matchOn, c_cases = cases }
+           )
+
 floater :: Expr a -> Expr a
 floater expr =
     runIdentity $
@@ -165,6 +181,7 @@ floatLet expr =
       EBinOp (Annotated x binopE) -> freeBinOp x binopE
       EFunApp (Annotated x funAppE) -> freeFunApp x funAppE
       EIf (Annotated x ifE) -> freeIf x ifE
+      ECase (Annotated x caseE) -> freeCase x caseE
       ELet (Annotated x l) ->
           do (ol, e) <- toOpenLet x l
              (ol2, e') <- floatLet e
@@ -172,7 +189,6 @@ floatLet expr =
       ECopy e ->
           do (floated, e') <- floatLet e
              pure (emptyOpenLet, ECopy $ applyOpenLet floated e')
-      _ -> error "NOT IMPL" -- TODO
 
 getFreeVars :: Set Var -> Expr a -> Set Var
 getFreeVars seen e =
