@@ -9,7 +9,6 @@ import Types.Common
 import Control.Monad
 import Control.Monad.State
 import Data.Functor.Identity
---import Data.List (foldl')
 import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Foldable as F
