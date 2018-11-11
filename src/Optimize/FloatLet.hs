@@ -9,35 +9,69 @@ import Types.Common
 import Control.Monad
 import Control.Monad.State
 import Data.Functor.Identity
+import Data.List (foldl')
 import Data.Monoid
 import Data.Set (Set)
+import qualified Data.Foldable as F
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as S
+import qualified Data.SortedList as SL
 
-data OpenLet a
-    = OpenLet
+import Debug.Trace
+
+data OpenLetEntry a
+    = OpenLetEntry
     { ol_close :: Expr a -> Expr a
     , ol_bind :: Set Var
     , ol_free :: Set Var
     }
 
+instance Show (OpenLetEntry a) where
+    show ole =
+        "OpenLetEntry { ol_close = undefined, ol_bind = "
+        <> show (ol_bind ole) <> ", ol_free = " <> show (ol_free ole) <> "}"
+
+instance Eq (OpenLetEntry a) where
+    (/=) ol1 ol2 =
+        not (S.null (ol_bind ol1 `S.intersection` ol_free ol2))
+
+instance Ord (OpenLetEntry a) where
+    (<=) ol1 ol2 =
+        not (S.null (ol_bind ol1 `S.intersection` ol_free ol2))
+
+data OpenLet a
+    = OpenLet
+    { ol_stack :: SL.SortedList (OpenLetEntry a)
+    } deriving (Show)
+
 emptyOpenLet :: OpenLet a
-emptyOpenLet = OpenLet id mempty mempty
+emptyOpenLet = OpenLet mempty
 
 combineOpenLet :: OpenLet a -> OpenLet a -> OpenLet a
 combineOpenLet ol1 ol2 =
-    if not (S.null (ol_bind ol1 `S.intersection` ol_free ol2))
-    then go ol1 ol2
-    else go ol2 ol1
-    where
-      go x y =
-          OpenLet
-          { ol_close = \inE ->
-                  ol_close x $
-                  ol_close y inE
-          , ol_bind = ol_bind x <> ol_bind y
-          , ol_free = ol_free x <> (ol_free y `S.difference` ol_bind x)
-          }
+    OpenLet
+    { ol_stack = ol_stack ol1 <> ol_stack ol2
+    }
+
+data SplitResult a
+    = SplitResult
+    { sr_pass :: OpenLet a
+      -- ^ safe to pass beyond the variable binding
+    , sr_apply :: OpenLet a
+      -- ^ apply at current level
+    }
+
+splitOpenLet :: S.Set Var -> OpenLet a -> SplitResult a
+splitOpenLet boundVars openLet =
+    let applySpan ole =
+            S.null (boundVars `S.intersection` ol_free ole)
+        (pass, apply) =
+            span applySpan $ reverse $ F.toList (ol_stack openLet)
+    in trace ("Split: pass=" <> show pass <> " apply=" <> show apply) $
+       SplitResult
+       { sr_pass = OpenLet $ SL.toSortedList pass
+       , sr_apply = OpenLet $ SL.toSortedList apply
+       }
 
 instance Monoid (OpenLet a) where
     mempty = emptyOpenLet
@@ -46,21 +80,27 @@ instance Monoid (OpenLet a) where
 toOpenLet :: Monad m => a -> Let a -> m (OpenLet a, Expr a)
 toOpenLet a (Let boundVar@(Annotated _ v) boundExpr inVal) =
     do (boundOlRaw, boundExprRaw) <- floatLet boundExpr
-       let (boundOl, boundExpr') =
-               -- TODO not optimal, it's all or nothing
-               if v `S.member` (ol_free boundOlRaw)
-               then (mempty, applyOpenLet boundOlRaw boundExprRaw)
-               else (boundOlRaw, boundExprRaw)
-       let myOpenLet =
-               OpenLet
+       let split = splitOpenLet (S.singleton v) boundOlRaw
+           boundExpr' = applyOpenLet (sr_apply split) boundExprRaw
+           ole =
+               OpenLet $
+               SL.singleton $
+               OpenLetEntry
                { ol_close = \inE -> ELet $ Annotated a $ Let boundVar boundExpr' inE
                , ol_bind = S.singleton v
                , ol_free = getFreeVars (S.singleton v) boundExpr'
                }
-       pure (boundOl <> myOpenLet, inVal)
+       pure
+           ( ole <> sr_pass split
+           , inVal
+           )
 
 applyOpenLet :: OpenLet a -> Expr a -> Expr a
-applyOpenLet = ol_close
+applyOpenLet ol expr =
+    trace ("Apply: " <> show (F.toList (ol_stack ol))) $
+    foldl' apply expr (reverse $ fmap ol_close $ F.toList $ ol_stack ol)
+    where
+      apply e f = f e
 
 freeList :: Monad m => a -> [Expr a] -> m (OpenLet a, Expr a)
 freeList ann vals =
@@ -92,10 +132,12 @@ freeLambda :: Monad m => a -> Lambda a -> m (OpenLet a, Expr a)
 freeLambda a lambda =
     do let boundHere = S.fromList $ map a_value (l_args lambda)
        (ol, body') <- floatLet (l_body lambda)
-       if not (S.null (boundHere `S.intersection` ol_free ol))
-       then -- TODO: representation of OpenLet is not optimal, it's all or nothing here.
-            pure (emptyOpenLet, ELambda $ Annotated a $ lambda { l_body = applyOpenLet ol body'})
-       else pure (ol, ELambda $ Annotated a $ lambda { l_body = body'})
+       let split = splitOpenLet boundHere ol
+       pure
+           ( sr_pass split
+           , ELambda $ Annotated a $
+             lambda { l_body = applyOpenLet (sr_apply split) body'}
+           )
 
 freeBinOp :: Monad m => a -> BinOp a -> m (OpenLet a, Expr a)
 freeBinOp ann bo =
@@ -152,9 +194,8 @@ freeCase ann caseE =
            forM (c_cases caseE) $ \(pat, expr) ->
            do let patVars = S.fromList $ patternVars pat
               (olE, expr') <- floatLet expr
-              if not (S.null (patVars `S.intersection` ol_free olE))
-                 then pure (emptyOpenLet, (pat, applyOpenLet olE expr'))
-                 else pure (olE, (pat, expr'))
+              let split = splitOpenLet patVars olE
+              pure (sr_pass split, (pat, applyOpenLet (sr_apply split) expr'))
        pure
            ( mconcat (ol1 : ols)
            , ECase $ Annotated ann $ caseE { c_matchOn = matchOn, c_cases = cases }

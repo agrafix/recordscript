@@ -29,6 +29,7 @@ dependencies:
   - megaparsec
   - scientific
   - language-javascript
+  - sorted-list
 
 default-extensions:
   - ApplicativeDo
