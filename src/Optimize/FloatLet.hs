@@ -9,7 +9,7 @@ import Types.Common
 import Control.Monad
 import Control.Monad.State
 import Data.Functor.Identity
-import Data.List (foldl')
+--import Data.List (foldl')
 import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Foldable as F
@@ -36,8 +36,10 @@ instance Eq (OpenLetEntry a) where
         not (S.null (ol_bind ol1 `S.intersection` ol_free ol2))
 
 instance Ord (OpenLetEntry a) where
-    (<=) ol1 ol2 =
-        not (S.null (ol_bind ol1 `S.intersection` ol_free ol2))
+    compare ol1 ol2 =
+        if not (S.null (ol_bind ol1 `S.intersection` ol_free ol2))
+        then LT
+        else GT
 
 data OpenLet a
     = OpenLet
@@ -64,9 +66,9 @@ data SplitResult a
 splitOpenLet :: S.Set Var -> OpenLet a -> SplitResult a
 splitOpenLet boundVars openLet =
     let applySpan ole =
-            S.null (boundVars `S.intersection` ol_free ole)
-        (pass, apply) =
-            span applySpan $ reverse $ F.toList (ol_stack openLet)
+            not (S.null (boundVars `S.intersection` ol_free ole))
+        (apply, pass) =
+            span applySpan $ F.toList (ol_stack openLet)
     in trace ("Split: pass=" <> show pass <> " apply=" <> show apply) $
        SplitResult
        { sr_pass = OpenLet $ SL.toSortedList pass
@@ -98,9 +100,9 @@ toOpenLet a (Let boundVar@(Annotated _ v) boundExpr inVal) =
 applyOpenLet :: OpenLet a -> Expr a -> Expr a
 applyOpenLet ol expr =
     trace ("Apply: " <> show (F.toList (ol_stack ol))) $
-    foldl' apply expr (reverse $ fmap ol_close $ F.toList $ ol_stack ol)
+    foldr apply expr (fmap ol_close $ F.toList $ ol_stack ol)
     where
-      apply e f = f e
+      apply f e = f e
 
 freeList :: Monad m => a -> [Expr a] -> m (OpenLet a, Expr a)
 freeList ann vals =
