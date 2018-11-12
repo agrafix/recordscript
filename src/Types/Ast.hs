@@ -271,6 +271,12 @@ isLambda expr =
       ELambda _ -> True
       _ -> False
 
+toRecord :: Expr a -> Maybe (Record (Expr a))
+toRecord expr =
+    case expr of
+      ERecord (Annotated _ r) -> Just r
+      _ -> Nothing
+
 toLiteral :: Expr a -> Maybe Literal
 toLiteral expr =
     case expr of

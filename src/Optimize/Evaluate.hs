@@ -6,6 +6,7 @@ import Analyse.VariableScopes
 import Data.Maybe
 import Types.Annotation
 import Types.Ast
+import Types.Common
 
 import Control.Monad.State
 import Data.Functor.Identity
@@ -212,6 +213,36 @@ runBinOp ann binOpRaw =
               Just (LBool x, LBool y) -> litRes $ LBool (f x y)
               _ -> noRun binOp
 
+runFunApp :: EvalM a m => a -> FunApp a -> m (Expr a)
+runFunApp ann rawFunApp =
+    do funApp <- funAppTransformM runExpr rawFunApp
+       -- TODO: try running the function??
+       pure $ EFunApp . Annotated ann $ funApp
+
+runRecord :: EvalM a m => a -> Record (Expr a) -> m (Expr a)
+runRecord ann (Record hm) =
+    do res <-
+           forM (HM.toList hm) $ \(k, v) ->
+           (,) k <$> runExpr v
+       pure $ ERecord $ Annotated ann $ Record $ HM.fromList res
+
+runRecordMerge :: EvalM a m => a -> RecordMerge a -> m (Expr a)
+runRecordMerge ann rawMerge =
+    do recordMerge <- recordMergeTransformM runExpr rawMerge
+       -- TODO: can we combine/group merges here?
+       pure $ ERecordMerge . Annotated ann $ recordMerge
+
+runRecordAccess :: EvalM a m => a -> RecordAccess a -> m (Expr a)
+runRecordAccess ann rawAccess =
+    do recordAccess <- recordAccessTransformM runExpr rawAccess
+       case toRecord (ra_record recordAccess) of
+         Just (Record hm) ->
+             case HM.lookup (ra_field recordAccess) hm of
+               Just expr -> pure expr
+               Nothing ->
+                   fail ("Internal error: bad record field!" <> show (ra_field recordAccess))
+         Nothing -> pure $ ERecordAccess $ Annotated ann recordAccess
+
 runExpr :: EvalM a m => Expr a -> m (Expr a)
 runExpr expr =
     case expr of
@@ -223,6 +254,11 @@ runExpr expr =
       ECase (Annotated x caseE) -> runCase x caseE
       EBinOp (Annotated x binOpE) -> runBinOp x binOpE
       ELambda (Annotated x lambdaE) -> runLambda x lambdaE
-      _ ->
-          trace ("Skipping!") $
-          pure expr -- TODO: implement more evaluators :P
+      EFunApp (Annotated x funAppE) -> runFunApp x funAppE
+      ERecord (Annotated x recordE) -> runRecord x recordE
+      ERecordMerge (Annotated x recordMergeE) -> runRecordMerge x recordMergeE
+      ERecordAccess (Annotated x recordAccessE) -> runRecordAccess x recordAccessE
+      ECopy copyE ->
+          -- TODO: is this safe? well, actually there should never
+          -- be copies in the compiler at this stage.
+          ECopy <$> runExpr copyE
