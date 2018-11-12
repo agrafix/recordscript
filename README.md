@@ -8,3 +8,5 @@ copy operations while keeping fully functional semantics.
 ## TODOs
 
 - [ ] Use comma operator in code gen to avoid unneeded functions
+- [ ] Better code gen for in place record updates
+- [ ] Tetris game loop benchmark
