@@ -8,4 +8,3 @@ copy operations while keeping fully functional semantics.
 ## TODOs
 
 - [ ] Use comma operator in code gen to avoid unneeded functions
-- [ ] Inlining?
