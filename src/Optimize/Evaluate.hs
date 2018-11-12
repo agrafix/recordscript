@@ -14,7 +14,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Monoid
 import Debug.Trace
 
-evaluate :: Expr a -> Expr a
+evaluate :: Show a => Expr a -> Expr a
 evaluate e =
     fst $ runIdentity $ runStateT (runExpr e) emptyState
 
@@ -50,7 +50,7 @@ lookupVar v =
     do s <- get
        pure $ HM.lookup v (es_scope s)
 
-type EvalM a = MonadState (EvalState a)
+type EvalM a m = (Show a, MonadState (EvalState a) m)
 
 runList :: EvalM a m => a -> [Expr a] -> m (Expr a)
 runList ann vals =
@@ -60,11 +60,49 @@ runIf :: EvalM a m => a -> If a -> m (Expr a)
 runIf ann rawIf =
     do evaledIf <- ifTransformM runExpr rawIf
        let ifBodies =
-               filter (\(check, _) -> isBool False check) (if_bodies evaledIf)
-       case ifBodies of
+               filter (\(check, _) -> toLiteral check /= Just (LBool False))
+               (if_bodies evaledIf)
+       case trace ("If bodies:" <> show (if_bodies evaledIf)) $ ifBodies of
          ((cond, alwaysTaken):_) | isBool True cond -> pure alwaysTaken
          [] -> pure (if_else evaledIf)
          _ -> pure $ EIf $ Annotated ann $ If ifBodies (if_else evaledIf)
+
+data BranchState
+    = BsAlways
+    | BsNever
+    | BsMaybe
+    deriving (Show, Eq)
+
+checkCaseBranch ::
+    EvalM a m => Expr a -> (Pattern a, Expr a) -> m (BranchState, Pattern a, Expr a)
+checkCaseBranch matchOn (pat, branchE) =
+    case pat of
+      PAny _ -> pure (BsAlways, pat, branchE)
+      PLit (Annotated _ lit) ->
+          -- TODO: this could do better in detecting BsNever
+          pure (if isLit lit matchOn then BsAlways else BsMaybe, pat, branchE)
+      PVar (Annotated _ var) ->
+          do branchE' <-
+                 scoped $
+                 do declare var InAlways matchOn
+                    runExpr branchE
+             pure (BsAlways, pat, branchE')
+      PRecord _ -> pure (BsMaybe, pat, branchE) -- TODO: this could do better.
+
+runCase :: EvalM a m => a -> Case a -> m (Expr a)
+runCase ann rawCase =
+    do evaledCase <- caseTransformM runExpr rawCase
+       cases <-
+           forM (c_cases evaledCase) (checkCaseBranch (c_matchOn evaledCase))
+       let applicableCases =
+               filter (\(check, _, _) -> check /= BsNever) cases
+       case applicableCases of
+         -- TODO: if there's only one case, we can remove the case statement entirely
+         ((BsAlways, _, alwaysTaken):_) -> pure alwaysTaken
+         [(_, _, alwaysTaken)] -> pure alwaysTaken
+         _ ->
+             pure $ ECase $ Annotated ann $
+             Case (c_matchOn evaledCase) $ flip map applicableCases $ \(_, p, e) -> (p, e)
 
 runLet :: EvalM a m => a -> Let a -> m (Expr a)
 runLet ann (Let bv@(Annotated _ boundVar) boundExpr inExpr) =
@@ -182,6 +220,7 @@ runExpr expr =
       EList (Annotated x listVals) -> runList x listVals
       EIf (Annotated x ifE) -> runIf x ifE
       ELet (Annotated x letE) -> runLet x letE
+      ECase (Annotated x caseE) -> runCase x caseE
       EBinOp (Annotated x binOpE) -> runBinOp x binOpE
       ELambda (Annotated x lambdaE) -> runLambda x lambdaE
       _ ->

@@ -6,5 +6,5 @@ code: |
   };
   x
 javascript: |
-  (function(){var n___3=5;var z___0=1;var x___1=(function(___var0){if(true){var m___2=___var0;return((function(){var l___4=m___2;return((n___3+l___4));})());};if(true){return(100);};})(z___0);return(x___1);})()
+  6
 output: "6"
