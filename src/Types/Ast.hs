@@ -259,6 +259,33 @@ data Expr a
     | ECopy (Expr a)
     deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
+isLit :: Literal -> Expr a -> Bool
+isLit l expr =
+    case expr of
+      ELit (Annotated _ r) -> r == l
+      _ -> False
+
+isLambda :: Expr a -> Bool
+isLambda expr =
+    case expr of
+      ELambda _ -> True
+      _ -> False
+
+toLiteral :: Expr a -> Maybe Literal
+toLiteral expr =
+    case expr of
+      ELit (Annotated _ l) -> Just l
+      _ -> Nothing
+
+isLiteral :: Expr a -> Bool
+isLiteral expr =
+    case expr of
+      ELit _ -> True
+      _ -> False
+
+isBool :: Bool -> Expr a -> Bool
+isBool x = isLit (LBool x)
+
 getExprAnn :: Expr a -> a
 getExprAnn expr =
     case expr of

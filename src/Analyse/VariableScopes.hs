@@ -1,5 +1,5 @@
 module Analyse.VariableScopes
-    (getFreeVars, patternVars)
+    (getFreeVars, getFreeVarMap, patternVars)
 where
 
 import Types.Annotation
@@ -15,13 +15,17 @@ import qualified Data.Set as S
 
 getFreeVars :: Set Var -> Expr a -> Set Var
 getFreeVars seen e =
+    S.fromList $ HM.keys $ getFreeVarMap seen e
+
+getFreeVarMap :: Set Var -> Expr a -> HM.HashMap Var Int
+getFreeVarMap seen e =
     vs_free $ snd $ runIdentity $
     runStateT (collectFreeVariables e) (VarSet seen mempty)
 
 data VarSet
     = VarSet
     { vs_seen :: Set Var
-    , vs_free :: Set Var
+    , vs_free :: HM.HashMap Var Int
     } deriving (Show, Eq)
 
 type CollectM = MonadState VarSet
@@ -35,7 +39,7 @@ scoped go =
 
 markAsFree :: CollectM m => Var -> m ()
 markAsFree v =
-    modify $ \vs -> vs { vs_free = S.insert v (vs_free vs) }
+    modify $ \vs -> vs { vs_free = HM.insertWith (+) v 1 (vs_free vs) }
 
 markAsSeen :: CollectM m => Var -> m ()
 markAsSeen v =
