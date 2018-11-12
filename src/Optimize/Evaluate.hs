@@ -4,6 +4,7 @@ where
 
 import Analyse.VariableScopes
 import Data.Maybe
+import Pretty.Expr
 import Types.Annotation
 import Types.Ast
 import Types.Common
@@ -11,6 +12,8 @@ import Types.Common
 import Control.Monad.State
 import Data.Functor.Identity
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Set as S
+import qualified Data.Text as T
 
 import Data.Monoid
 import Debug.Trace
@@ -38,6 +41,13 @@ data InlineDecl
     | InAlways
     | InTrivial
     deriving (Show, Eq)
+
+undeclare :: EvalM a m => Var -> m ()
+undeclare v =
+    modify $ \es ->
+    es
+    { es_scope = HM.delete v (es_scope es)
+    }
 
 declare :: EvalM a m => Var -> InlineDecl -> Expr a -> m ()
 declare v idecl e =
@@ -133,7 +143,7 @@ runLet ann (Let bv@(Annotated _ boundVar) boundExpr inExpr) =
 runVar :: EvalM a m => a -> Var -> m (Expr a)
 runVar ann var =
     do res <- lookupVar var
-       case trace ("runVar: " <> show var <> " res:" <> show (fmap fst res)) res of
+       case trace ("runVar: " <> show var <> " res:" <> show res) res of
          Just (idecl, varE) ->
              case idecl of
                InAlways -> runExpr varE
@@ -160,10 +170,10 @@ runBinOp ann binOpRaw =
          BoDiv a b -> mathDbl binOp (/) a b
          BoEq a b -> cmp binOp (==) a b
          BoNeq a b -> cmp binOp (/=) a b
-         BoGt a b -> cmp binOp (<) a b
-         BoGtEq a b -> cmp binOp (<=) a b
-         BoLt a b -> cmp binOp (>) a b
-         BoLtEq a b -> cmp binOp (>=) a b
+         BoGt a b -> cmp binOp (>) a b
+         BoGtEq a b -> cmp binOp (>=) a b
+         BoLt a b -> cmp binOp (<) a b
+         BoLtEq a b -> cmp binOp (<=) a b
          BoNot a -> doNot binOp a
          BoAnd a b -> bool binOp (&&) a b
          BoOr a b -> bool binOp (||) a b
@@ -216,8 +226,32 @@ runBinOp ann binOpRaw =
 runFunApp :: EvalM a m => a -> FunApp a -> m (Expr a)
 runFunApp ann rawFunApp =
     do funApp <- funAppTransformM runExpr rawFunApp
-       -- TODO: try running the function??
-       pure $ EFunApp . Annotated ann $ funApp
+       let noAction = pure $ EFunApp . Annotated ann $ funApp
+       case toVar (fa_receiver funApp) of
+         Just var ->
+             do receiver <- lookupVar var
+                case join $ fmap (toLambda . snd) receiver of
+                  Nothing -> noAction
+                  Just lambdaE ->
+                      do let lambdaArgs = a_value <$> l_args lambdaE
+                             zippedArgs =
+                                 zip lambdaArgs (fa_args funApp)
+                         newBody <-
+                             scoped $
+                             do forM_ zippedArgs $ \(boundVar, boundVal) ->
+                                    if S.member boundVar (getFreeVars mempty boundVal)
+                                    then declare boundVar InNever boundVal
+                                    else declare boundVar InAlways boundVal
+                                undeclare var
+                                runExpr (l_body lambdaE)
+                         let free =
+                                 trace ("######## OldBody: " <> T.unpack (prettyExpr (l_body lambdaE)) <> " NewBody: " <> T.unpack (prettyExpr newBody) <> " args: " <> show (map (\(x, y) -> (x, prettyExpr y)) zippedArgs)) $
+                                 getFreeVars mempty newBody
+                         if S.null (S.fromList lambdaArgs `S.intersection` free)
+                            then pure newBody
+                            else -- TODO: if not everything is applied, can we still do something??
+                                 noAction
+         Nothing -> noAction
 
 runRecord :: EvalM a m => a -> Record (Expr a) -> m (Expr a)
 runRecord ann (Record hm) =

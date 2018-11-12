@@ -4,5 +4,5 @@ code: |
   let y = () => { z + 100 };
   y() + z
 javascript: |
-  (function(){var y___2=(function(){return(101);});return((y___2()+1));})()
+  102
 output: "102"

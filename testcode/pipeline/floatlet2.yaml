@@ -7,5 +7,5 @@ code: |
   };
   x + y()
 javascript: |
-  (function(){var y___1=(function(){return(12);});return((6+y___1()));})()
+  18
 output: "18"

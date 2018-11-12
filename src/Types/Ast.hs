@@ -277,6 +277,18 @@ toRecord expr =
       ERecord (Annotated _ r) -> Just r
       _ -> Nothing
 
+toVar :: Expr a -> Maybe Var
+toVar expr =
+    case expr of
+      EVar (Annotated _ l) -> Just l
+      _ -> Nothing
+
+toLambda :: Expr a -> Maybe (Lambda a)
+toLambda expr =
+    case expr of
+      ELambda (Annotated _ l) -> Just l
+      _ -> Nothing
+
 toLiteral :: Expr a -> Maybe Literal
 toLiteral expr =
     case expr of
