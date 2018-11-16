@@ -1,0 +1,5 @@
+if (record.x == 5) {
+   record.x
+} else {
+  {...record, x:5}.x
+}

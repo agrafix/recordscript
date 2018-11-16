@@ -7,6 +7,8 @@ import Test.Helpers
 import Parser.Expr
 import Parser.Shared
 import TypeCheck.InferExpr
+import Types.Annotation
+import Types.Ast (mapAnn, Expr)
 
 import Control.Monad
 import Data.Bifunctor
@@ -20,6 +22,13 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Data.Text.Lazy as TL
 
+
+doTc :: Monad f => Expr Pos -> f (Expr TypedPos)
+doTc expr =
+    case runIdentity $ runInferM (inferExpr expr) of
+       Right (typedExpr, inferState) ->
+           pure $ resolvePass typedExpr inferState
+       Left typeError -> fail (show typeError)
 
 makeCodeGenTests :: FilePath -> SpecWith ()
 makeCodeGenTests dir =
@@ -35,21 +44,22 @@ makeCodeGenTests dir =
               let parseResult =
                       first parseErrorPretty $
                       executeParser inFile (exprP <* eof) content
-                  typeCheckResult = first show . runIdentity . runInferM . inferExpr
-              case parseResult >>= typeCheckResult of
-                Right (typedExpr, _) ->
-                    do let result = runAnalysisM $ writePathAnalysis typedExpr emptyEnv
+              case parseResult of
+                Right parsedOk ->
+                    do checked <- doTc parsedOk
+                       let result = runAnalysisM $ writePathAnalysis checked emptyEnv
                        case result of
                          Left errMsg ->
                              expectationFailure $
                              "Failed to do copy analysis: " <> show errMsg
                          Right (_, finalE) ->
-                             do let generated =
+                             do finalTc <- doTc (mapAnn tp_pos finalE)
+                                let generated =
                                         TL.toStrict $
                                         renderToText $
-                                        JSAstExpression (runCodeGenM (genExpr finalE >>= forceExpr))
+                                        JSAstExpression (runCodeGenM (genExpr finalTc >>= forceExpr))
                                         JSNoAnnot
                                 generated `shouldBe` expected
                 Left errMsg ->
                     expectationFailure $
-                    "Failed to typecheck. Error: " <> errMsg
+                    "Failed to parse. Error: " <> errMsg

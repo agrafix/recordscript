@@ -1,3 +1,3 @@
-record.y
+#record
 =====
 let internal1 = !<record>;let internal0 = !<record>;if(({ ...internal0, ...{x: 5}}.x == 5)) { record.x}else if(({ ...internal1, ...{y: 5}}.y == 8)) { record.y}else {(record.x + record.y)}

@@ -223,15 +223,21 @@ applySingleCopyAction ca expr =
                }
        pure (pure bind, G.everywhere (G.mkT execReplace) expr)
 
-joinWritePaths :: AnalysisM m => Pos -> WriteTarget -> WriteTarget -> m (WriteTarget, [CopyAction])
-joinWritePaths pos w1 w2 =
+joinWritePaths :: AnalysisM m => String -> Pos -> WriteTarget -> WriteTarget -> m (WriteTarget, [CopyAction])
+joinWritePaths reason pos w1 w2 =
     case (w1, w2) of
-      (WtPrim PwtNone, x) -> pure (x, mempty)
-      (x, WtPrim PwtNone) -> pure (x, mempty)
-      (WtPrim x, WtPrim y) -> first (packMany . map WtPrim) <$> handleTargets pos [x] [y]
-      (WtPrim x, WtMany y) -> first (packMany . map WtPrim) <$> handleTargets pos [x] y
-      (WtMany x, WtPrim y) -> first (packMany . map WtPrim) <$> handleTargets pos x [y]
-      (WtMany x, WtMany y) -> first (packMany . map WtPrim) <$> handleTargets pos x y
+      (WtPrim PwtNone, x) -> pure $ withLogs (x, mempty)
+      (x, WtPrim PwtNone) -> pure $ withLogs (x, mempty)
+      (WtPrim x, WtPrim y) -> withLogs . first (packMany . map WtPrim) <$> handleTargets pos [x] [y]
+      (WtPrim x, WtMany y) -> withLogs . first (packMany . map WtPrim) <$> handleTargets pos [x] y
+      (WtMany x, WtPrim y) -> withLogs . first (packMany . map WtPrim) <$> handleTargets pos x [y]
+      (WtMany x, WtMany y) -> withLogs . first (packMany . map WtPrim) <$> handleTargets pos x y
+    where
+      withLogs l@(_, ca) =
+          trace (
+          "JoinWritePaths: " ++ T.unpack (prettyPos pos) ++ " (" ++ reason ++ ") - Joined "
+          ++ show w1 ++ " with " ++ show w2
+          ++ ": CopyActions: " ++ show ca) l
 
 type TargetTuple = (Var, [RecordKey], CopyAllowed, WriteOccured, Position)
 
@@ -322,11 +328,27 @@ packMany wts =
       [x] -> x
       many ->
           let merged = foldl' merge mempty many
-          in case nub merged of
+          in case nub $ concatMap varDedupe $ HM.toList $ varMap merged of
               [] -> WtPrim PwtNone
               [x] -> WtPrim x
               xs -> WtMany xs
     where
+      varDedupe (var, attribs) =
+          let sorted =
+                  sortOn (\(rk, _, writeOccurred, _) ->
+                              (writeOccurred /= WoWrite, length rk)) attribs
+          in case sorted of
+               ((rk, copyAllowed, writeOccurred, pos):_) | writeOccurred == WoWrite ->
+                 [PwtVar var rk copyAllowed writeOccurred pos]
+               _ ->
+                 map (\(rk, ca, wo, pos) -> PwtVar var rk ca wo pos) sorted
+      varMap prims =
+          let go st wt =
+                  case wt of
+                    PwtNone -> st
+                    PwtVar writtenVar a b c d ->
+                        HM.insertWith (++) writtenVar [(a, b, c, d)] st
+          in foldl' go mempty prims
       merge accum wtgt =
           case wtgt of
             WtPrim PwtNone -> accum
@@ -460,23 +482,37 @@ handleBinOp env tp@(TypedPos pos _) bo =
       handleBo c x y =
           do (lhs, le) <- writePathAnalysis x env
              (rhs, re) <- writePathAnalysis y env
-             (writeTarget, copyActions) <- joinWritePaths pos lhs rhs
+             (writeTarget, copyActions) <- joinWritePaths "binop" pos lhs rhs
              (bind, l, r) <- applyCopyActions copyActions le re
              pure (writeTarget, bindCopies bind $ addA (c l r))
 
 type BranchSwitch = (Maybe (Expr TypedPos), Expr TypedPos)
+
+data BranchSwitchResult
+    = BranchSwitchResult
+    { bsr_condWriteTarget :: Maybe WriteTarget
+    , bsr_bodyWriteTarget :: WriteTarget
+    , bsr_switch :: BranchSwitch
+    , bsr_pendingCopies :: PendingCopies
+    } deriving (Show, Eq)
 
 handleBranchSwitch ::
     AnalysisM m
     => Env
     -> TypedPos
     -> BranchSwitch
-    -> m (WriteTarget, BranchSwitch, PendingCopies)
+    -> m BranchSwitchResult
 handleBranchSwitch env (TypedPos pos _) (mCondE, bodyE) =
     case mCondE of
       Nothing ->
           do (wt, e') <- writePathAnalysis bodyE env
-             pure (wt, (Nothing, e'), mempty)
+             pure
+                 BranchSwitchResult
+                 { bsr_condWriteTarget = Nothing
+                 , bsr_bodyWriteTarget = wt
+                 , bsr_switch = (Nothing, e')
+                 , bsr_pendingCopies = mempty
+                 }
       Just condE ->
           trace ("BranchSwitch condE=" ++ show condE ++ " pathTraversed=" ++ show (e_pathTraversed env)) $
           do (condWt, condE') <-
@@ -486,51 +522,85 @@ handleBranchSwitch env (TypedPos pos _) (mCondE, bodyE) =
                  , e_position = PIn
                  }
              (bodyWt, bodyE') <- writePathAnalysis bodyE env
-             (writeTarget, copyActions) <- joinWritePaths pos condWt bodyWt
+             (_, copyActions) <-
+                 joinWritePaths "cond <-> body" pos condWt bodyWt
              (bind, l, r) <- applyCopyActions copyActions condE' bodyE'
-             pure (writeTarget, (Just l, r), bind)
+             pure
+                 BranchSwitchResult
+                 { bsr_condWriteTarget = Just condWt
+                 , bsr_bodyWriteTarget = bodyWt
+                 , bsr_switch = (Just l, r)
+                 , bsr_pendingCopies = bind
+                 }
+
+data BranchResult
+    = BranchResult
+    { br_condWriteTarget :: Maybe WriteTarget
+    , br_bodyWriteTargets :: [WriteTarget]
+    , br_switches :: [BranchSwitch]
+    , br_pendingCopies :: PendingCopies
+    } deriving (Show, Eq)
 
 handleBranchSwitchPair ::
-    (AnalysisM m, Show w, Applyable w)
+    (AnalysisM m)
     => Env
     -> TypedPos
-    -> (WriteTarget, w, PendingCopies)
+    -> BranchResult
     -> BranchSwitch
-    -> m (WriteTarget, w, BranchSwitch, PendingCopies)
-handleBranchSwitchPair env tp@(TypedPos pos _) (wtL, l1, bindL) r =
-    do (wtR, r1, bindR) <- handleBranchSwitch env tp r
-       (writeTarget, copyActions) <- joinWritePaths pos wtL wtR
+    -> m BranchResult
+handleBranchSwitchPair env tp@(TypedPos pos _) bsrL r =
+    do bsrR <- handleBranchSwitch env tp r
+       (writeTarget, copyActions) <-
+           case (br_condWriteTarget bsrL, bsr_condWriteTarget bsrR) of
+             (Just wtL, Just wtR) ->
+                 first Just <$> joinWritePaths "branch pair" pos wtL wtR
+             (Just wtL, Nothing) -> pure (Just wtL, mempty)
+             (Nothing, Just wtR) -> pure (Just wtR, mempty)
+             _ -> pure (Nothing, mempty)
        (bind3, bs1, bs2) <-
-           applyCopyActions copyActions l1 r1
+           applyCopyActions copyActions (br_switches bsrL) (bsr_switch bsrR)
        let binds =
-               bindL <> bindR <> bind3
-       pure (writeTarget, bs1, bs2, binds)
+               br_pendingCopies bsrL <> bsr_pendingCopies bsrR <> bind3
+       pure
+           BranchResult
+           { br_condWriteTarget = writeTarget
+           , br_bodyWriteTargets = br_bodyWriteTargets bsrL ++ [bsr_bodyWriteTarget bsrR]
+           , br_switches = bs1 ++ [bs2]
+           , br_pendingCopies = binds
+           }
 
 handleBranchSwitchSequence ::
     forall m. AnalysisM m
     => Env
     -> TypedPos
     -> [BranchSwitch]
-    -> m (WriteTarget, [BranchSwitch], PendingCopies)
+    -> m BranchResult
 handleBranchSwitchSequence env tp branches =
     do let looper st [] = pure st
-           looper (oldWt, oldEs, oldBind) (b:bs) =
-               do (wt, newEs, b', newBind) <-
-                      handleBranchSwitchPair env tp (oldWt, oldEs, oldBind) b
-                  looper (wt, newEs ++ [b'], newBind) bs
+           looper bsrp (b:bs) =
+               do bsrp' <- handleBranchSwitchPair env tp bsrp b
+                  looper bsrp' bs
        case branches of
          [] -> error "Missing branches, requiring branches for this analysis"
          (b1:rest) ->
-             do (wt, bs, bind) <- handleBranchSwitch env tp b1
-                looper (wt, [bs], bind) rest
+             do bsr <- handleBranchSwitch env tp b1
+                let bspr =
+                        BranchResult
+                        { br_condWriteTarget = bsr_condWriteTarget bsr
+                        , br_bodyWriteTargets = [bsr_bodyWriteTarget bsr]
+                        , br_switches = [bsr_switch bsr]
+                        , br_pendingCopies = bsr_pendingCopies bsr
+                        }
+                looper bspr rest
 
 handleIf :: AnalysisM m => Env -> TypedPos -> If TypedPos -> m (WriteTarget, Expr TypedPos)
 handleIf env tp (If bodies elseExpr) =
     do let inputBranches =
                map (\(x, y) -> (Just x, y)) bodies
                ++ [(Nothing, elseExpr)]
-       (wt, branches, bind) <- handleBranchSwitchSequence env tp inputBranches
-       let collectBodies xs =
+       br <- handleBranchSwitchSequence env tp inputBranches
+       let branches = br_switches br
+           collectBodies xs =
                case xs of
                  [] -> []
                  ((Just cond, body) : more) -> ((cond, body) : collectBodies more)
@@ -540,7 +610,9 @@ handleIf env tp (If bodies elseExpr) =
                case find (\(x, _) -> isNothing x) branches of
                   Nothing -> error "Internal inconsistency error"
                   Just (_, e) -> e
-       pure (wt, bindCopies bind $ addA $ If bodies' elseExpr')
+           writeTargets =
+               packMany $ maybeToList (br_condWriteTarget br) ++ br_bodyWriteTargets br
+       pure (writeTargets, bindCopies (br_pendingCopies br) $ addA $ If bodies' elseExpr')
     where
         addA = EIf . Annotated tp
 
@@ -551,13 +623,16 @@ handleCase env tp (Case matchOn cases) =
       (firstCase:otherCases) ->
           do let inputBranches =
                      ((Just matchOn, snd firstCase) : map (\(_, x) -> (Nothing, x)) otherCases)
-             (wt, branches, bind) <- handleBranchSwitchSequence env tp inputBranches
-             let matchOn' =
+             br <- handleBranchSwitchSequence env tp inputBranches
+             let branches = br_switches br
+                 matchOn' =
                      case find (\(x, _) -> isJust x) branches of
                        Just (Just m, _) -> m
                        _ -> error "Internal inconsistency error (2)"
                  cases' = zip (map fst cases) (map snd branches)
-             pure (wt, bindCopies bind $ addA $ Case matchOn' cases')
+                 writeTargets =
+                     packMany $ maybeToList (br_condWriteTarget br) ++ br_bodyWriteTargets br
+             pure (writeTargets, bindCopies (br_pendingCopies br) $ addA $ Case matchOn' cases')
     where
       addA = ECase . Annotated tp
 
@@ -575,10 +650,8 @@ handleExprSequence env (TypedPos pos _) exprs =
       looper (oldWt, oldX, oldBind) (y:ys) =
           do (wt, y') <- writePathAnalysis y env
              (wt', copyActions) <-
-                 trace ("Joining: " ++ show oldWt ++ " with " ++ show wt) $
-                 joinWritePaths pos oldWt wt
+                 joinWritePaths "expr sequence" pos oldWt wt
              (bind, oldX', y'') <-
-                 trace ("CopyActions: " ++ show copyActions) $
                  applyCopyActions copyActions oldX y'
              looper (wt', oldX' ++ [y''], oldBind <> bind) ys
 
@@ -609,22 +682,18 @@ handleLambda env tp (Lambda args body) =
 
 handleRecordMerge ::
     AnalysisM m => Env -> TypedPos -> RecordMerge TypedPos -> m (WriteTarget, Expr TypedPos)
-handleRecordMerge env tp@(TypedPos pos _) (RecordMerge tgt x noCopy) =
+handleRecordMerge env tp@(TypedPos _ _) (RecordMerge tgt x noCopy) =
     do let env' =
                env
                { e_pathTraversed = []
                }
-       (wtTgt, tgt') <-
-           writePathAnalysis tgt $
-           env'
+       (wtTgt, tgt') <- writePathAnalysis tgt $ env'
            { e_copyAllowed = if not noCopy then CaAllowed else CaBanned
            , e_writeOccured = WoWrite
            }
-       (wtX, x', bind) <- handleExprSequence (env' { e_position = PIn }) tp x
-       (finalWt, copyActions) <- joinWritePaths pos wtTgt wtX
-       (finalBind, tgt'', x'') <- applyCopyActions copyActions tgt' x'
-       let allBinds = bind <> finalBind
-       pure (finalWt, bindCopies allBinds $ addA (RecordMerge tgt'' x'' noCopy))
+       (wtX, x', bind) <- handleExprSequence (env { e_position = PIn }) tp x
+       let allBinds = bind
+       pure (packMany [wtTgt, wtX], bindCopies allBinds $ addA (RecordMerge tgt' x' noCopy))
     where
         addA = ERecordMerge . Annotated tp
 
@@ -692,10 +761,8 @@ writePathAnalysis expr env =
                         handleLetTarget var bindE' (e_pathTraversed env) [] funInfo' inRes
                     pure (removeTarget var retWt, bindE'', inE')
              (finalWt, copyActions) <-
-                 trace ("## bind=" ++ show bindWt ++ "res=" ++ show resWt) $
-                 joinWritePaths pos bindWt resWt
+                 joinWritePaths "final let" pos bindWt resWt
              (finalBind, finalBindE, finalE) <-
-                 trace ("### final=" ++ show finalWt) $
                  applyCopyActions copyActions bindE'' inE''
              let let' =
                      ELet $ Annotated ann1 $ Let (Annotated ann2 var) finalBindE finalE

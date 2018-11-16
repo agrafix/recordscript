@@ -12,7 +12,10 @@ import Optimize.FloatLet
 import Optimize.NamedLambda
 import Parser.Expr
 import Parser.Shared
+import Pretty.Expr
 import TypeCheck.InferExpr (runInferM, inferExpr, prettyInferError, resolvePass)
+import Types.Annotation
+import Types.Ast (mapAnn)
 
 import Data.Bifunctor
 import Data.Functor.Identity
@@ -21,6 +24,8 @@ import Text.Megaparsec (eof)
 import Text.Megaparsec.Error
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
+
+import Debug.Trace
 
 data Error
    = EParseError T.Text
@@ -34,17 +39,24 @@ compileCode inputCode =
            first (EParseError . T.pack . parseErrorPretty) $
            executeParser "<test>" (exprP <* eof) inputCode
        let uniqueResult = runUniqueM $ runUniquify parseResult
-       (typeCheckResult, inferState) <-
-           first (ETypeError . prettyInferError) $
-           runIdentity $ runInferM (inferExpr uniqueResult)
+       typeCheckResult <- doTc uniqueResult
        namedLambdas <-
-           pure $ runNamedLambda (nameLambdas $ resolvePass typeCheckResult inferState)
+           pure $ runNamedLambda (nameLambdas typeCheckResult)
        floated <- pure $ floater namedLambdas
        evaled <- pure $ evaluate floated
-       -- TODO: we should type check again here since the annotations are likely wrong.
+       let strippedTypes = mapAnn tp_pos evaled
+       rechecked <- doTc strippedTypes
        flowResult <-
+           trace (T.unpack $ prettyExpr rechecked) $
            first (EFlowError . prettyCopyError) $
            second snd $
-           runAnalysisM (writePathAnalysis evaled emptyEnv)
+           runAnalysisM (writePathAnalysis rechecked emptyEnv)
+       finalChecked <- doTc (mapAnn tp_pos flowResult)
        pure $ TL.toStrict $ renderToText $
-           JSAstExpression (runCodeGenM (genExpr flowResult >>= forceExpr)) JSNoAnnot
+           JSAstExpression (runCodeGenM (genExpr finalChecked >>= forceExpr)) JSNoAnnot
+    where
+        doTc expr =
+            do (typeCheckResult, inferState) <-
+                   first (ETypeError . prettyInferError) $
+                   runIdentity $ runInferM (inferExpr expr)
+               pure $ resolvePass typeCheckResult inferState

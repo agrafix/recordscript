@@ -5,6 +5,7 @@ module Types.Ast where
 import Types.Annotation
 import Types.Common
 import Types.Types
+import qualified Data.HashMap.Strict as HM
 
 import Data.Bifunctor
 import Data.Data
@@ -30,6 +31,15 @@ data Pattern a
    | PRecord (A a (Record (Pattern a)))
    | PAny a
     deriving (Eq, Ord, Show, Generic, Data, Typeable)
+
+mapPatAnn :: (a -> b) -> Pattern a -> Pattern b
+mapPatAnn f pat =
+    case pat of
+      PVar (Annotated x v) -> PVar (Annotated (f x) v)
+      PLit (Annotated x l) -> PLit (Annotated (f x) l)
+      PAny x -> PAny (f x)
+      PRecord (Annotated x (Record hm)) ->
+          PRecord $ Annotated (f x) $ Record $ HM.map (mapPatAnn f) hm
 
 data If a
     = If
@@ -65,11 +75,27 @@ data Let a
     , l_in :: Expr a
     } deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
+letTransform' :: (Expr a -> Expr b) -> (a -> b) -> Let a -> Let b
+letTransform' f g (Let boundVar boundExpr inE) =
+    Let
+    { l_boundVar =
+            Annotated (g (a_ann boundVar)) (a_value boundVar)
+    , l_boundExpr = f boundExpr
+    , l_in = f inE
+    }
+
 data Lambda a
     = Lambda
     { l_args :: [A a Var]
     , l_body :: Expr a
     } deriving (Eq, Ord, Show, Generic, Data, Typeable)
+
+lambdaTransform' :: (Expr a -> Expr b) -> (a -> b) -> Lambda a -> Lambda b
+lambdaTransform' f g (Lambda args body) =
+    Lambda
+    { l_args = map (\x -> Annotated (g (a_ann x)) (a_value x)) args
+    , l_body = f body
+    }
 
 data FunApp a
     = FunApp
@@ -108,6 +134,13 @@ caseTransform :: (Expr a -> Expr a) -> Case a -> Case a
 caseTransform f i =
     Case
     { c_cases = map (second f) (c_cases i)
+    , c_matchOn = f (c_matchOn i)
+    }
+
+caseTransform' :: (Expr a -> Expr b) -> (Pattern a -> Pattern b) -> Case a -> Case b
+caseTransform' f g i =
+    Case
+    { c_cases = map (first g . second f) (c_cases i)
     , c_matchOn = f (c_matchOn i)
     }
 
@@ -323,3 +356,29 @@ getExprAnn expr =
 
 getExprType :: Expr TypedPos -> Type
 getExprType = tp_type . getExprAnn
+
+mapAnn :: (a -> b) -> Expr a -> Expr b
+mapAnn f expr =
+    case expr of
+      ELit (Annotated x l) -> ELit (Annotated (f x) l)
+      EVar (Annotated x v) -> EVar (Annotated (f x) v)
+      EList (Annotated x els) -> EList (Annotated (f x) $ map (mapAnn f) els)
+      ERecord (Annotated x (Record r)) ->
+          ERecord (Annotated (f x) $ Record $ HM.map (mapAnn f) r)
+      ERecordMerge (Annotated x rm) ->
+          ERecordMerge $ Annotated (f x) $ recordMergeTransform (mapAnn f) rm
+      ERecordAccess (Annotated x ra) ->
+          ERecordAccess $ Annotated (f x) $ recordAccessTransform (mapAnn f) ra
+      EIf (Annotated x ifE) ->
+          EIf $ Annotated (f x) $ ifTransform (mapAnn f) ifE
+      ELet (Annotated x letE) ->
+          ELet $ Annotated (f x ) $ letTransform' (mapAnn f) f letE
+      ELambda (Annotated x la) ->
+          ELambda $ Annotated (f x) $ lambdaTransform' (mapAnn f) f la
+      EFunApp (Annotated x fa) ->
+          EFunApp $ Annotated (f x) $ funAppTransform (mapAnn f) fa
+      ECase (Annotated x caseE) ->
+          ECase $ Annotated (f x) $ caseTransform' (mapAnn f) (mapPatAnn f) caseE
+      EBinOp (Annotated x binOpE) ->
+          EBinOp $ Annotated (f x) $ binOpTransform (mapAnn f) binOpE
+      ECopy e -> ECopy $ mapAnn f e

@@ -5,6 +5,7 @@ module Types.Annotation where
 import Types.Types
 
 import Data.Data
+import Data.Monoid
 import GHC.Generics
 import qualified Data.Text as T
 
@@ -30,6 +31,13 @@ data Pos
     , p_line :: Maybe Int
     , p_column :: Maybe Int
     } deriving (Eq, Ord, Show, Generic, Data, Typeable)
+
+prettyPos :: Pos -> T.Text
+prettyPos p =
+    p_file p <> "@"
+    <> (maybe "?" (T.pack . show) (p_line p))
+    <> ":"
+    <> (maybe "?" (T.pack . show) (p_column p))
 
 data TypedPos
     = TypedPos

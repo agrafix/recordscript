@@ -1,0 +1,7 @@
+if (record.x == 5) {
+   {...record, x:5}.x
+} else if (record.y == 8) {
+   record.y
+} else {
+   record.x + record.y
+}

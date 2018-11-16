@@ -8,6 +8,7 @@ where
 import Types.Annotation
 import Types.Ast
 import Types.Common
+import Types.Types
 
 import Control.Monad.State
 import Data.Functor.Identity
@@ -17,6 +18,8 @@ import Language.JavaScript.Parser.AST
 import Language.JavaScript.Pretty.Printer
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
+
+import Debug.Trace
 
 data JsState
     = JsState
@@ -46,7 +49,7 @@ genLiteral lit =
       LString t -> JSStringLiteral JSNoAnnot (show $ T.unpack t)
       LBool b -> JSLiteral JSNoAnnot (if b then "true" else "false")
 
-genRecord :: CodeGenM m => Record (Expr a) -> m JSExpression
+genRecord :: CodeGenM m => Record (Expr TypedPos) -> m JSExpression
 genRecord (Record recHm) =
     do let kvPairs = HM.toList recHm
        transformed <-
@@ -59,7 +62,7 @@ genRecord (Record recHm) =
                JSCTLNone (makeCommaList $ map packKv transformed)
        pure $ JSObjectLiteral JSNoAnnot contents JSNoAnnot
 
-genIf :: CodeGenM m => If a -> m JSExpression
+genIf :: CodeGenM m => If TypedPos -> m JSExpression
 genIf (If bodies elseE) =
     loop bodies
     where
@@ -115,7 +118,7 @@ data LetStack a
     , _ls_expr :: JSExpression
     } deriving (Show, Eq)
 
-genTcoLambdaWrapper :: CodeGenM m => Lambda a -> [JSStatement] -> m JSExpression
+genTcoLambdaWrapper :: CodeGenM m => Lambda TypedPos -> [JSStatement] -> m JSExpression
 genTcoLambdaWrapper (Lambda args _) innerLoop =
     do let params =
                makeCommaList $
@@ -132,7 +135,7 @@ genTcoLambdaWrapper (Lambda args _) innerLoop =
            makeParen $
            JSFunctionExpression JSNoAnnot JSIdentNone JSNoAnnot params JSNoAnnot bodyBlock
 
-handleTailCall :: CodeGenM m => Var -> Lambda a -> Expr a -> m (Maybe [JSStatement])
+handleTailCall :: CodeGenM m => Var -> Lambda TypedPos -> Expr TypedPos -> m (Maybe [JSStatement])
 handleTailCall selfName (Lambda argLabels _) body =
     case body of
       EFunApp (Annotated _ (FunApp rcv argVals)) ->
@@ -154,7 +157,7 @@ handleTailCall selfName (Lambda argLabels _) body =
             _ -> pure Nothing
       _ -> pure Nothing
 
-handleIf :: CodeGenM m => Var -> Lambda a -> WithA a If -> m JSExpression
+handleIf :: CodeGenM m => Var -> Lambda TypedPos -> WithA TypedPos If -> m JSExpression
 handleIf selfName lambda (Annotated a (If bodies elseE)) =
     do let allBodies = bodies ++ [(ELit (Annotated a $ LBool True), elseE)]
        withTailCalls <-
@@ -175,7 +178,7 @@ handleIf selfName lambda (Annotated a (If bodies elseE)) =
           then genTcoLambdaWrapper lambda compiledIf
           else genLambda lambda
 
-tcoOptimize :: CodeGenM m => Var -> Lambda a -> m JSExpression
+tcoOptimize :: CodeGenM m => Var -> Lambda TypedPos -> m JSExpression
 tcoOptimize selfName l@(Lambda _ body) =
     do handledCall <- handleTailCall selfName l body
        case handledCall of
@@ -186,14 +189,14 @@ tcoOptimize selfName l@(Lambda _ body) =
                -- TODO: handle more tail call cases
                _ -> genLambda l
 
-compileLetBind :: CodeGenM m => A a Var -> Expr a -> m JSExpression
+compileLetBind :: CodeGenM m => A TypedPos Var -> Expr TypedPos -> m JSExpression
 compileLetBind (Annotated _ var) expr =
     case expr of
       ELambda (Annotated _ lambdaE) ->
           tcoOptimize var lambdaE
       _ -> genExpr expr >>= forceExpr
 
-exprToFunBody :: CodeGenM m => Either JSExpression (LetStack a) -> m [JSStatement]
+exprToFunBody :: CodeGenM m => Either JSExpression (LetStack TypedPos) -> m [JSStatement]
 exprToFunBody output =
     case output of
       Left e -> pure [JSReturn JSNoAnnot (Just $ makeParen e) $ JSSemi JSNoAnnot]
@@ -208,7 +211,7 @@ exprToFunBody output =
                      ]
              pure stmts
 
-forceExpr :: CodeGenM m => Either JSExpression (LetStack a) -> m JSExpression
+forceExpr :: CodeGenM m => Either JSExpression (LetStack TypedPos) -> m JSExpression
 forceExpr output =
     case output of
       Left e -> pure e
@@ -221,14 +224,14 @@ forceExpr output =
              pure $ JSCallExpression funExpr JSNoAnnot (makeCommaList []) JSNoAnnot
 
 
-genFunApp :: CodeGenM m => FunApp a -> m JSExpression
+genFunApp :: CodeGenM m => FunApp TypedPos -> m JSExpression
 genFunApp (FunApp receiverE argListE) =
     do recv <- genExpr receiverE >>= forceExpr
        args <- mapM (genExpr >=> forceExpr) argListE
        pure $
            JSCallExpression recv JSNoAnnot (makeCommaList args) JSNoAnnot
 
-genLambda :: CodeGenM m => Lambda a -> m JSExpression
+genLambda :: CodeGenM m => Lambda TypedPos -> m JSExpression
 genLambda (Lambda args bodyE) =
     do let params =
                makeCommaList $
@@ -240,26 +243,26 @@ genLambda (Lambda args bodyE) =
            makeParen $
            JSFunctionExpression JSNoAnnot JSIdentNone JSNoAnnot params JSNoAnnot bodyBlock
 
-genRecordMerge :: CodeGenM m => RecordMerge a -> m JSExpression
+genRecordMerge :: CodeGenM m => RecordMerge TypedPos -> m JSExpression
 genRecordMerge (RecordMerge targetE mergeInEs _) =
     do target <- genExpr targetE >>= forceExpr
        mergers <- mapM (genExpr >=> forceExpr) mergeInEs
        pure $
            JSCallExpression objAssign JSNoAnnot (makeCommaList (target:mergers)) JSNoAnnot
 
-genCopy :: CodeGenM m => Expr a -> m JSExpression
+genCopy :: CodeGenM m => Expr TypedPos -> m JSExpression
 genCopy bodyE =
     do body <- genExpr bodyE >>= forceExpr
        pure $
            JSCallExpression objAssign JSNoAnnot (makeCommaList [emptyObj, body]) JSNoAnnot
 
-genRecordAccess :: CodeGenM m => RecordAccess a -> m JSExpression
+genRecordAccess :: CodeGenM m => RecordAccess TypedPos -> m JSExpression
 genRecordAccess (RecordAccess recordE (RecordKey field)) =
     do body <- genExpr recordE >>= forceExpr
        pure $
            JSCallExpressionDot (makeParen body) JSNoAnnot (JSIdentifier JSNoAnnot $ T.unpack field)
 
-genLet :: CodeGenM m => Let a -> m (Either JSExpression (LetStack a))
+genLet :: CodeGenM m => Let TypedPos -> m (Either JSExpression (LetStack TypedPos))
 genLet (Let boundVar boundE inE) =
     do inVal <- genExpr inE
        case inVal of
@@ -268,7 +271,7 @@ genLet (Let boundVar boundE inE) =
          Right (LetStack prevBinds innerExpr) ->
              pure $ Right $ LetStack ((boundVar, boundE) : prevBinds) innerExpr
 
-genBinOp :: CodeGenM m => BinOp a -> m JSExpression
+genBinOp :: CodeGenM m => BinOp TypedPos -> m JSExpression
 genBinOp bo =
     case bo of
       BoAdd a b -> handleBo JSBinOpPlus a b
@@ -292,7 +295,7 @@ genBinOp bo =
              r <- genExpr rE >>= forceExpr
              pure $ makeParen $ JSExpressionBinary l (op JSNoAnnot) r
 
-genCaseCheck :: CodeGenM m => JSExpression -> Pattern a -> m JSExpression
+genCaseCheck :: CodeGenM m => JSExpression -> Pattern TypedPos -> m JSExpression
 genCaseCheck checkAgainst pat =
     case pat of
       PVar (Annotated _ _) -> pure $ genLiteral $ LBool True
@@ -311,7 +314,7 @@ genCaseCheck checkAgainst pat =
                        PRecord _ -> genCaseCheck recAccess innerPattern
           in foldM handleEntry (genLiteral $ LBool True) (HM.toList patHm)
 
-genCaseBinds :: CodeGenM m => JSExpression -> Pattern a -> m [JSStatement]
+genCaseBinds :: CodeGenM m => JSExpression -> Pattern TypedPos -> m [JSStatement]
 genCaseBinds checkAgainst pat =
     case pat of
       PVar (Annotated _ (Var var)) -> pure [bindVar var checkAgainst]
@@ -331,7 +334,7 @@ genCaseBinds checkAgainst pat =
                               pure (st ++ moreBinds)
           in foldM handleEntry [] (HM.toList patHm)
 
-genCaseSwitch :: CodeGenM m => String -> (Pattern a, Expr a) -> m JSStatement
+genCaseSwitch :: CodeGenM m => String -> (Pattern TypedPos, Expr TypedPos) -> m JSStatement
 genCaseSwitch varName (pat, expr) =
     do let checkAgainst = JSIdentifier JSNoAnnot varName
        check <- genCaseCheck checkAgainst pat
@@ -343,7 +346,7 @@ genCaseSwitch varName (pat, expr) =
        pure $ JSIf JSNoAnnot JSNoAnnot check JSNoAnnot
            (JSStatementBlock JSNoAnnot body JSNoAnnot $ JSSemi JSNoAnnot)
 
-genCase :: CodeGenM m => Case a -> m JSExpression
+genCase :: CodeGenM m => Case TypedPos -> m JSExpression
 genCase caseE =
     do fresh <- freshVar
        funBody <- mapM (genCaseSwitch (T.unpack fresh)) (c_cases caseE)
@@ -356,7 +359,7 @@ genCase caseE =
        pure $
            JSCallExpression funExpr JSNoAnnot (makeCommaList [matchOn]) JSNoAnnot
 
-genExpr :: CodeGenM m => Expr a -> m (Either JSExpression (LetStack a))
+genExpr :: CodeGenM m => Expr TypedPos -> m (Either JSExpression (LetStack TypedPos))
 genExpr expr =
     case expr of
       ELit (Annotated _ lit) -> pure $ Left (genLiteral lit)
@@ -373,7 +376,12 @@ genExpr expr =
       EIf (Annotated _ ifE) -> Left <$> genIf ifE
       EFunApp (Annotated _ funAppE) -> Left <$> genFunApp funAppE
       ELambda (Annotated _ lambdaE) -> Left <$> genLambda lambdaE
-      ECopy e -> Left <$> genCopy e
+      ECopy e ->
+          case tp_type $ getExprAnn e of
+            TRec _ -> Left <$> genCopy e
+            ty ->
+                trace ("No copy. Type was: " ++ show ty) $
+                genExpr e
       ELet (Annotated _ letE) -> genLet letE
       EBinOp (Annotated _ binOpE) -> Left <$> genBinOp binOpE
       ECase (Annotated _ caseE) -> Left <$> genCase caseE
