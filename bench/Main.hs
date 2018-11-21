@@ -97,8 +97,15 @@ makeJavaScriptBenchmark bc =
     }
 
 data RunType
-    = FullRun
+    = Run
     | CheckOnly
+    deriving (Show, Eq)
+
+data RunConfiguration
+    = RunConfiguration
+    { rc_type :: RunType
+    , rc_filter :: Maybe T.Text
+    }
     deriving (Show, Eq)
 
 renderBenchmark :: RunType -> T.Text -> [PreparedBenchmark] -> T.Text
@@ -107,7 +114,7 @@ renderBenchmark runType filename pbench =
     where
       benchCode =
           case runType of
-            FullRun -> prerun ++ benchs ++ end
+            Run -> prerun ++ benchs ++ end
             CheckOnly -> []
       header =
           [ "var suite = require('chuhai');"
@@ -143,12 +150,18 @@ renderBenchmark runType filename pbench =
           [ "});"
           ]
 
-runBenchmarks :: RunType -> IO ()
-runBenchmarks runType =
+runBenchmarks :: RunConfiguration -> IO ()
+runBenchmarks runConfig =
     do allFiles <- listDirectory "benchcode"
        elmProjectFile <- T.readFile "misc/elm-project.json"
        let getFilesWithExt ext = filter (\fp -> takeExtension fp == ext)
-           benchs = getFilesWithExt ".yaml" allFiles
+           nameFilter =
+               case rc_filter runConfig of
+                 Nothing -> const True
+                 Just wantedName -> T.isInfixOf wantedName . T.pack
+           benchs =
+               filter nameFilter $
+               getFilesWithExt ".yaml" allFiles
        forM_ benchs $ \benchmarkFile ->
            do benchmark <-
                   decodeFileEither ("benchcode" </> benchmarkFile) >>= \parsed ->
@@ -162,7 +175,7 @@ runBenchmarks runType =
                       , makeElmBenchmark <$> b_elm benchmark
                       , Just . makeRecordScriptBenchmark $ b_recordscript benchmark
                       ]
-                  js = renderBenchmark runType (T.pack benchmarkFile) compiled
+                  js = renderBenchmark (rc_type runConfig) (T.pack benchmarkFile) compiled
               withSystemTempDirectory "benchmark" $ \dir ->
                   do let run cmd =
                              runProcess_ $ setWorkingDir dir $ shell cmd
@@ -195,5 +208,14 @@ main :: IO ()
 main =
     do args <- getArgs
        case args of
-         ["--check-only"] -> runBenchmarks CheckOnly
-         _ -> runBenchmarks FullRun
+         ["--check-only"] -> runBenchmarks $ baseRc CheckOnly
+         ["-m", match, "--check-only"] ->
+             runBenchmarks $ (baseRc CheckOnly) {rc_filter = Just $ T.strip $ T.pack match}
+         ["--check-only", "-m", match] ->
+             runBenchmarks $ (baseRc CheckOnly) {rc_filter = Just $ T.strip $ T.pack match}
+         ["-m", match] ->
+             runBenchmarks $ (baseRc Run) {rc_filter = Just $ T.strip $ T.pack match}
+         _ -> runBenchmarks (baseRc Run)
+    where
+        baseRc t =
+            RunConfiguration {rc_filter = Nothing, rc_type = t}
