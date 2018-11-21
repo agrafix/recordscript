@@ -1,0 +1,67 @@
+name: fib
+recordscript:
+  setup: |
+    let fib = (number) => {
+      let fibRec = (r) => {
+        if (r.index <= 0) {
+          r.current
+        } else {
+          fibRec({...r, index: r.index - 1, prev: r.prev + r.current, current: r.prev})
+        }
+      };
+      fibRec({index: number, prev: 1, current: 0})
+    };
+    fib
+  run: |
+    recordscript(35)
+  expected: "9227465"
+javascript:
+  setup: |
+    function (number) {
+      var state = {previous_first: 0, previous_second: 1, next: 1};
+
+      for(var i = 2; i <= number; i++) {
+        state.next = state.previous_first + state.previous_second;
+        state.previous_first = state.previous_second;
+        state.previous_second = state.next;
+      }
+      return state.next;
+    }
+  run: |
+    javascript(35)
+  expected: "9227465"
+purescript:
+  setup: |
+    module Main where
+
+    import Prelude
+
+    fibRec :: {index :: Int, prev :: Int, current :: Int} -> Int
+    fibRec r =
+      if r.index <= 0
+        then r.current
+        else fibRec $ r {index = (r.index - 1), prev = (r.prev + r.current), current = r.prev}
+
+    fib :: Int -> Int
+    fib number = fibRec {index: number, prev: 1, current: 0}
+  run: |
+    purescript.fib(35)
+  expected: "9227465"
+elm:
+  setup: |
+    import Basics
+    import Html exposing (text)
+
+    fibRec : {index: Int, prev: Int, current: Int} -> Int
+    fibRec r =
+      if r.index <= 0
+      then r.current
+      else fibRec { r | index = (r.index - 1), prev = (r.prev + r.current), current = r.prev}
+
+    export : Int -> Int
+    export number = fibRec {index = number, prev = 1, current = 0}
+
+    main = text (String.fromInt <| export 10)
+  run: |
+    elm(35)
+  expected: "9227465"
