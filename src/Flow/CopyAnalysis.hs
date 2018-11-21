@@ -593,9 +593,19 @@ handleBranchSwitchSequence env tp branches =
                         }
                 looper bspr rest
 
+handleIfConditions :: AnalysisM m => Env -> TypedPos -> If TypedPos -> m (WriteTarget, If TypedPos, PendingCopies)
+handleIfConditions env tp (If bodies elseExpr) =
+    do let conditions = map fst bodies
+           env' = env { e_position = PIn }
+       (writeTarget, conditions', pendingCopies) <-
+           handleExprSequence env' tp conditions
+       let bodies' = zip conditions' (map snd bodies)
+       pure (writeTarget, If bodies' elseExpr, pendingCopies)
+
 handleIf :: AnalysisM m => Env -> TypedPos -> If TypedPos -> m (WriteTarget, Expr TypedPos)
-handleIf env tp (If bodies elseExpr) =
-    do let inputBranches =
+handleIf env tp rawIf =
+    do (condWt, If bodies elseExpr, pc) <- handleIfConditions env tp rawIf
+       let inputBranches =
                map (\(x, y) -> (Just x, y)) bodies
                ++ [(Nothing, elseExpr)]
        br <- handleBranchSwitchSequence env tp inputBranches
@@ -611,8 +621,10 @@ handleIf env tp (If bodies elseExpr) =
                   Nothing -> error "Internal inconsistency error"
                   Just (_, e) -> e
            writeTargets =
-               packMany $ maybeToList (br_condWriteTarget br) ++ br_bodyWriteTargets br
-       pure (writeTargets, bindCopies (br_pendingCopies br) $ addA $ If bodies' elseExpr')
+               trace ("### Completed if. CondWt=" ++ show (br_condWriteTarget br)
+                     ++ " BodyWt=" ++ show (br_bodyWriteTargets br)) $
+               packMany $ br_bodyWriteTargets br ++ [condWt]
+       pure (writeTargets, bindCopies (pc ++ br_pendingCopies br) $ addA $ If bodies' elseExpr')
     where
         addA = EIf . Annotated tp
 
