@@ -1,1 +1,1 @@
-(function(record){var internal0=Object.assign({},record);var x=(Object.assign(internal0,{x:5})).x;return(((x+(record).x)+10));})
+(function(record){var internal0=Object.assign({},record);var x=((function(){var ___var0=5;return((internal0.x=___var0,internal0));})()).x;return(((x+(record).x)+10));})

@@ -260,11 +260,37 @@ runRecord ann (Record hm) =
            (,) k <$> runExpr v
        pure $ ERecord $ Annotated ann $ Record $ HM.fromList res
 
+preMerge :: a -> [Expr a] -> [Expr a]
+preMerge ann exprs =
+    reverse $ looper exprs (Record mempty) []
+    where
+      doMerge (Record l) (Record r) = Record $ HM.union l r
+      looper [] curr@(Record r) output =
+          if HM.null r
+          then output
+          else ((ERecord $ Annotated ann curr) : output)
+      looper (e:es) currentRecord@(Record r') output =
+          case toRecord e of
+            Just r ->
+                looper es (doMerge currentRecord r) output
+            Nothing ->
+                let next =
+                        if HM.null r'
+                        then (e : output)
+                        else (e : (ERecord $ Annotated ann currentRecord) : output)
+                in looper es (Record mempty) next
+
 runRecordMerge :: EvalM a m => a -> RecordMerge a -> m (Expr a)
 runRecordMerge ann rawMerge =
-    do recordMerge <- recordMergeTransformM runExpr rawMerge
-       -- TODO: can we combine/group merges here?
-       pure $ ERecordMerge . Annotated ann $ recordMerge
+    do (RecordMerge target mergeIn noCopy) <- recordMergeTransformM runExpr rawMerge
+       let merged = preMerge ann (target : mergeIn)
+       (target', mergeIn') <-
+           case merged of
+             [] -> fail "Internal merge error"
+             (tgt:rest) -> pure (tgt, rest)
+       case mergeIn' of
+         [] -> pure target'
+         _ -> pure $ ERecordMerge $ Annotated ann (RecordMerge target' mergeIn' noCopy)
 
 runRecordAccess :: EvalM a m => a -> RecordAccess a -> m (Expr a)
 runRecordAccess ann rawAccess =

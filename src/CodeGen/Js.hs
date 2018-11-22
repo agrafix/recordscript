@@ -215,6 +215,7 @@ forceExpr :: CodeGenM m => Either JSExpression (LetStack TypedPos) -> m JSExpres
 forceExpr output =
     case output of
       Left e -> pure e
+      Right (LetStack [] e) -> pure e
       Right ls ->
           do funBody <- exprToFunBody (Right ls)
              let funExpr =
@@ -243,12 +244,42 @@ genLambda (Lambda args bodyE) =
            makeParen $
            JSFunctionExpression JSNoAnnot JSIdentNone JSNoAnnot params JSNoAnnot bodyBlock
 
-genRecordMerge :: CodeGenM m => RecordMerge TypedPos -> m JSExpression
+genRecordMerge :: CodeGenM m => RecordMerge TypedPos -> m (LetStack TypedPos)
 genRecordMerge (RecordMerge targetE mergeInEs _) =
-    do target <- genExpr targetE >>= forceExpr
-       mergers <- mapM (genExpr >=> forceExpr) mergeInEs
-       pure $
-           JSCallExpression objAssign JSNoAnnot (makeCommaList (target:mergers)) JSNoAnnot
+    do (bind, target) <-
+           case targetE of
+             (EVar _) ->
+                 do varExpr <- genExpr targetE >>= forceExpr
+                    pure (Nothing, varExpr)
+             _ ->
+                 do tempVar <- freshVar
+                    pure
+                        ( Just (Annotated (getExprAnn targetE) $ Var tempVar, targetE)
+                        , JSLiteral JSNoAnnot (T.unpack tempVar)
+                        )
+       case mapMaybe toRecord mergeInEs of
+         mergeRecords | length mergeRecords == length mergeInEs ->
+             do assignments <-
+                    fmap concat $
+                    forM mergeRecords $ \(Record mergeRecord) ->
+                    forM (HM.toList mergeRecord) $ \(RecordKey k, v) ->
+                    do let lhs =
+                               JSCallExpressionDot target JSNoAnnot
+                               (JSIdentifier JSNoAnnot $ T.unpack k)
+                       tempVar <- freshVar
+                       pure
+                           ( (Annotated (getExprAnn targetE) $ Var tempVar, v)
+                           , JSAssignExpression lhs (JSAssign JSNoAnnot)
+                             (JSLiteral JSNoAnnot (T.unpack tempVar))
+                           )
+                let (bindings, assigns) = unzip assignments
+                pure $ LetStack (maybeToList bind ++ bindings) $ makeParen $
+                    foldr (\l r -> JSCommaExpression l JSNoAnnot r) target assigns
+         _ ->
+             do mergers <- mapM (genExpr >=> forceExpr) mergeInEs
+                pure $
+                    LetStack (maybeToList bind) $
+                    JSCallExpression objAssign JSNoAnnot (makeCommaList (target:mergers)) JSNoAnnot
 
 genCopy :: CodeGenM m => Expr TypedPos -> m JSExpression
 genCopy bodyE =
@@ -371,7 +402,7 @@ genExpr expr =
                      map JSArrayElement exprs'
              pure $ Left $ JSArrayLiteral JSNoAnnot contents JSNoAnnot
       ERecord (Annotated _ recE) -> Left <$> genRecord recE
-      ERecordMerge (Annotated _ recordMergeE) -> Left <$> genRecordMerge recordMergeE
+      ERecordMerge (Annotated _ recordMergeE) -> Right <$> genRecordMerge recordMergeE
       ERecordAccess (Annotated _ recordAccessE) -> Left <$> genRecordAccess recordAccessE
       EIf (Annotated _ ifE) -> Left <$> genIf ifE
       EFunApp (Annotated _ funAppE) -> Left <$> genFunApp funAppE

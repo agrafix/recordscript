@@ -4,11 +4,15 @@ code: |
       if (r.index <= 0) {
         r.current
       } else {
-        fibRec({...r, index: r.index - 1, prev: r.prev + r.current, current: r.prev})
+        let index = r.index - 1;
+        let prev = r.prev + r.current;
+        let current = r.prev;
+        fibRec({...r, index: index, prev: prev, current: current})
       }
     };
     fibRec({index: number, prev: 1, current: 0})
   };
-  fib
+  fib(25)
 javascript: |
-  (function(){var fibRec___2=(function(r___3){do{if(((r___3).index<=0)){return((r___3).current);};if(true){var ___var0=Object.assign(r___3,{current:(r___3).prev,index:((r___3).index-1),prev:((r___3).prev+(r___3).current)});r___3=___var0;};}while(true);});var fib___0=(function(number___1){return(((number___1<=0)?0:fibRec___2(Object.assign({current:0,index:number___1,prev:1},{current:1,index:(number___1-1),prev:1}))));});return(fib___0);})()
+  (function(){var fibRec___2=(function(r___3){do{if(((r___3).index<=0)){return((r___3).current);};if(true){var ___var0=(function(){var ___var1=(r___3).prev;var ___var2=((r___3).index-1);var ___var3=((r___3).prev+(r___3).current);return((r___3.current=___var1,r___3.index=___var2,r___3.prev=___var3,r___3));})();r___3=___var0;};}while(true);});return(fibRec___2({current:0,index:25,prev:1}));})()
+output: "75025"
