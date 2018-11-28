@@ -14,5 +14,5 @@ code: |
   };
   fib(25)
 javascript: |
-  (function(){var fibRec___2=(function(r___3){do{if(((r___3).index<=0)){return((r___3).current);};if(true){var ___var0=(function(){var ___var1=(r___3).prev;var ___var2=((r___3).index-1);var ___var3=((r___3).prev+(r___3).current);return((r___3.current=___var1,r___3.index=___var2,r___3.prev=___var3,r___3));})();r___3=___var0;};}while(true);});return(fibRec___2({current:0,index:25,prev:1}));})()
+  (function(){var fibRec___2=(function(r___3){do{if(((r___3).index<=0)){return((r___3).current);};if(true){var ___var1=(r___3).prev;var ___var2=((r___3).index-1);var ___var3=((r___3).prev+(r___3).current);var ___var0=(r___3.current=___var1,r___3.index=___var2,r___3.prev=___var3,r___3);r___3=___var0;};}while(true);});return(fibRec___2({current:0,index:25,prev:1}));})()
 output: "75025"

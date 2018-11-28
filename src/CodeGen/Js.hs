@@ -114,8 +114,8 @@ stmtBlock innerBody = JSStatementBlock JSNoAnnot innerBody JSNoAnnot (JSSemi JSN
 
 data LetStack a
     = LetStack
-    { _ls_binds :: [(A a Var, Expr a)]
-    , _ls_expr :: JSExpression
+    { ls_binds :: [(A a Var, Expr a)]
+    , ls_expr :: JSExpression
     } deriving (Show, Eq)
 
 genTcoLambdaWrapper :: CodeGenM m => Lambda TypedPos -> [JSStatement] -> m JSExpression
@@ -144,16 +144,24 @@ handleTailCall selfName (Lambda argLabels _) body =
                 do assignments <-
                        forM (zip argLabels argVals) $ \((Annotated _ (Var x)), val) ->
                        do tempVar <- freshVar
-                          valE <- genExpr val >>= forceExpr
-                          let computeStmt =
-                                  bindVar tempVar valE
-                              assignStmt =
+                          valE <- genExpr val
+                          binds <-
+                              case valE of
+                                Left expr ->
+                                    pure [bindVar tempVar expr]
+                                Right letStack ->
+                                    do letBinds <-
+                                           forM (ls_binds letStack) $
+                                           \(Annotated _ (Var letVar), expr) ->
+                                           bindVar letVar <$> (genExpr expr >>= forceExpr)
+                                       pure $ letBinds ++ [bindVar tempVar $ ls_expr letStack]
+                          let assignStmt =
                                   JSExpressionStatement
                                   (JSAssignExpression (makeIdentE x) (JSAssign JSNoAnnot) (makeIdentE tempVar))
                                   (JSSemi JSNoAnnot)
-                          pure (computeStmt, assignStmt)
+                          pure (binds, assignStmt)
                    let (computes, assigns) = unzip assignments
-                   pure $ Just (computes ++ assigns)
+                   pure $ Just (concat computes ++ assigns)
             _ -> pure Nothing
       _ -> pure Nothing
 
