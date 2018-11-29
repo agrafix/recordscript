@@ -1,0 +1,11 @@
+code: |
+  let doAction = #[(Int, (Int) => Int) => Int]```
+  function (number, action) {
+    return action(number + 1);
+  }```;
+  doAction(1, (x) => { x + 1 })
+javascript: |
+  (function(){var lambda0=(function(x___1){return((x___1+1));});return(function (number, action) {
+    return action(number + 1);
+  }(1,lambda0));})()
+output: "3"

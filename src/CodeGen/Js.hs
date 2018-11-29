@@ -401,6 +401,7 @@ genCase caseE =
 genExpr :: CodeGenM m => Expr TypedPos -> m (Either JSExpression (LetStack TypedPos))
 genExpr expr =
     case expr of
+      ENative (Annotated _ n) -> pure $ Left (n_code n)
       ELit (Annotated _ lit) -> pure $ Left (genLiteral lit)
       EVar (Annotated _ (Var v)) -> pure $ Left (JSLiteral JSNoAnnot (T.unpack v))
       EList (Annotated _ exprs) ->

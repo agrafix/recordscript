@@ -83,6 +83,7 @@ collectLet (Let (Annotated _ var) boundExpr inExpr) =
 collectFreeVariables :: CollectM m => Expr a -> m ()
 collectFreeVariables expr =
     case expr of
+      ENative _ -> pure ()
       ELit _ -> pure ()
       EVar (Annotated _ var) ->
           do didSee <- hasSeen var

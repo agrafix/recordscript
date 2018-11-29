@@ -1,0 +1,7 @@
+let f = #[({x: a}, a) => {x: a}]```
+function (foo, bar) {
+   foo.x = bar;
+   return foo;
+}
+```;
+f({a: 5}, 6)

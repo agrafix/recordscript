@@ -3,6 +3,7 @@ module Parser.Expr where
 import Parser.Literal
 import Parser.Pattern
 import Parser.Shared
+import Parser.Types
 import Types.Annotation
 import Types.Ast
 import Types.Common
@@ -10,8 +11,11 @@ import Types.Common
 import Data.List (foldl')
 import Data.Maybe
 import Text.Megaparsec hiding (Pos)
+import Text.Megaparsec.Char
 import Text.Megaparsec.Expr
 import qualified Data.HashMap.Strict as HM
+import qualified Language.JavaScript.Parser.AST as JS
+import qualified Language.JavaScript.Parser.Parser as JS
 
 list :: Parser [Expr Pos]
 list =
@@ -74,6 +78,25 @@ letP =
        _ <- symbol ";"
        inExpr <- exprP
        pure (Let boundVar boundExpr inExpr)
+
+nativeP :: Parser Native
+nativeP =
+    do _ <- symbol "#"
+       ty <- brackets typeP
+       _ <- symbol "```"
+       body <- someTill latin1Char (symbol "```")
+       js <-
+           case JS.parse body "<input>" of
+             Left err -> fail ("Failed to parse FFI javascript: " ++ err)
+             Right ast ->
+                 case ast of
+                   JS.JSAstExpression expr _ -> pure expr
+                   JS.JSAstProgram [JS.JSExpressionStatement expr _] _ -> pure expr
+                   JS.JSAstStatement (JS.JSExpressionStatement expr _) _ -> pure expr
+                   _ ->
+                       fail $
+                       "Expected FFI javascript to be an expression. Got: " ++ show ast
+       pure $ Native ty js
 
 mergeP :: Parser (RecordMerge Pos)
 mergeP =
@@ -169,6 +192,7 @@ termP =
     try (ECase <$> posAnnotated caseP) <|>
     try (EIf <$> posAnnotated ifP) <|>
     try (ELit <$> posAnnotated literal) <|>
+    (ENative <$> posAnnotated nativeP) <|>
     try accessExprP <|>
     try (EList <$> posAnnotated list) <|>
     try (ERecord <$> posAnnotated (record RpmNormal exprP)) <|>

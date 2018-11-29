@@ -3,12 +3,16 @@ module Pretty.Expr (prettyExpr) where
 import Pretty.Literal
 import Pretty.Pattern
 import Pretty.Shared
+import Pretty.Types hiding (prettyRecord)
 import Types.Annotation
 import Types.Ast
 import Types.Common
 
 import Data.Monoid
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
+import qualified Language.JavaScript.Parser.AST as JS
+import qualified Language.JavaScript.Pretty.Printer as JS
 
 prettyExpr :: Expr a -> T.Text
 prettyExpr e =
@@ -26,6 +30,13 @@ prettyExpr e =
       ECase (Annotated _ eCase) -> prettyCase eCase
       EBinOp (Annotated _ eBinOp) -> prettyBinOp eBinOp
       ECopy e' -> "!<" <> prettyExpr e' <> ">"
+      ENative (Annotated _ native) -> prettyNative native
+
+prettyNative :: Native -> T.Text
+prettyNative n =
+    "#[" <> prettyType (n_type n) <> "]```"
+    <> TL.toStrict (JS.renderToText (JS.JSAstExpression (n_code n) JS.JSNoAnnot))
+    <> "```"
 
 prettyIf :: If a -> T.Text
 prettyIf i =

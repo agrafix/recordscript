@@ -424,6 +424,13 @@ getFunType expr funInfo =
           Just . FtRec <$> recordMapMaybeM (\e -> getFunType e funInfo) record
       EFunApp (Annotated _ (FunApp rcvE _)) ->
           getFunType rcvE funInfo
+      ENative (Annotated _ (Native ty _)) ->
+          case ty of
+            TFun argTypes _ ->
+                pure $ Just $ FtFun $ flip map argTypes $ \_ ->
+                -- TODO: we are lacking write information here
+                Just (Var "dummy", [], CaBanned, WoWrite, PIn)
+            _ -> pure Nothing
       _ -> pure Nothing -- TODO: is this right??
 
 funWriteThrough ::
@@ -738,6 +745,7 @@ writePathAnalysis ::
     -> m (WriteTarget, Expr TypedPos)
 writePathAnalysis expr env =
     case expr of
+      ENative _ -> pure $ unchanged $ WtPrim PwtNone -- TODO: this is not correct.
       ECopy _ -> pure $ unchanged $ WtPrim PwtNone -- should never happen
       ELit _ -> pure $unchanged $ WtPrim PwtNone -- does not do anything
       EList (Annotated pos list) -> handleList env pos list

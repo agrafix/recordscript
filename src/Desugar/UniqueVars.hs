@@ -81,6 +81,7 @@ doBinOp bo =
 runUniquify :: (Show a, UniqueM m) => Expr a -> m (Expr a)
 runUniquify expr =
     case expr of
+      ENative _ -> pure expr -- TODO: probably need to uniquify type vars?
       ELit _ -> pure expr
       ECopy e' -> ECopy <$> runUniquify e'
       EVar v -> EVar <$> mapMA uniquify v

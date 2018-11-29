@@ -11,6 +11,7 @@ import Data.Bifunctor
 import Data.Data
 import Data.Hashable
 import GHC.Generics
+import Language.JavaScript.Parser.AST
 import qualified Data.Text as T
 
 newtype Var
@@ -45,7 +46,7 @@ data If a
     = If
     { if_bodies :: [(Expr a, Expr a)]
     , if_else :: Expr a
-    } deriving (Eq, Ord, Show, Generic, Data, Typeable)
+    } deriving (Eq, Show, Generic, Data, Typeable)
 
 ifTransform :: (Expr a -> Expr b) -> If a -> If b
 ifTransform f i =
@@ -73,7 +74,7 @@ data Let a
     { l_boundVar :: A a Var
     , l_boundExpr :: Expr a
     , l_in :: Expr a
-    } deriving (Eq, Ord, Show, Generic, Data, Typeable)
+    } deriving (Eq, Show, Generic, Data, Typeable)
 
 letTransform' :: (Expr a -> Expr b) -> (a -> b) -> Let a -> Let b
 letTransform' f g (Let boundVar boundExpr inE) =
@@ -88,7 +89,7 @@ data Lambda a
     = Lambda
     { l_args :: [A a Var]
     , l_body :: Expr a
-    } deriving (Eq, Ord, Show, Generic, Data, Typeable)
+    } deriving (Eq, Show, Generic, Data, Typeable)
 
 lambdaTransform' :: (Expr a -> Expr b) -> (a -> b) -> Lambda a -> Lambda b
 lambdaTransform' f g (Lambda args body) =
@@ -101,7 +102,7 @@ data FunApp a
     = FunApp
     { fa_receiver :: Expr a
     , fa_args :: [Expr a]
-    } deriving (Eq, Ord, Show, Generic, Data, Typeable)
+    } deriving (Eq, Show, Generic, Data, Typeable)
 
 funAppTransform :: (Expr a -> Expr b) -> FunApp a -> FunApp b
 funAppTransform f fa =
@@ -128,7 +129,7 @@ data Case a
     = Case
     { c_matchOn :: Expr a
     , c_cases :: [(Pattern a, Expr a)]
-    } deriving (Eq, Ord, Show, Generic, Data, Typeable)
+    } deriving (Eq, Show, Generic, Data, Typeable)
 
 caseTransform :: (Expr a -> Expr a) -> Case a -> Case a
 caseTransform f i =
@@ -158,7 +159,7 @@ data RecordMerge a
     { rm_target :: Expr a
     , rm_mergeIn :: [Expr a]
     , rm_noCopy :: Bool
-    } deriving (Eq, Ord, Show, Generic, Data, Typeable)
+    } deriving (Eq, Show, Generic, Data, Typeable)
 
 recordMergeTransform :: (Expr a -> Expr b) -> RecordMerge a -> RecordMerge b
 recordMergeTransform f rm =
@@ -188,7 +189,7 @@ data RecordAccess a
     = RecordAccess
     { ra_record :: Expr a
     , ra_field :: RecordKey
-    } deriving (Eq, Ord, Show, Generic, Data, Typeable)
+    } deriving (Eq, Show, Generic, Data, Typeable)
 
 recordAccessTransform :: (Expr a -> Expr b) -> RecordAccess a -> RecordAccess b
 recordAccessTransform f ra =
@@ -223,7 +224,7 @@ data BinOp a
     | BoGtEq (Expr a) (Expr a)
     | BoLtEq (Expr a) (Expr a)
     | BoNot (Expr a)
-    deriving (Eq, Ord, Show, Generic, Data, Typeable)
+    deriving (Eq, Show, Generic, Data, Typeable)
 
 binOpTransform :: (Expr a -> Expr b) -> BinOp a -> BinOp b
 binOpTransform f bo =
@@ -276,6 +277,12 @@ binOpApplyM f bo =
       BoLtEq a b -> f a >> f b
       BoNot x -> f x
 
+data Native
+    = Native
+    { n_type :: Type
+    , n_code :: JSExpression
+    } deriving (Eq, Show, Generic, Data, Typeable)
+
 data Expr a
     = ELit (A a Literal)
     | EVar (A a Var)
@@ -290,7 +297,8 @@ data Expr a
     | ECase (WithA a Case)
     | EBinOp (WithA a BinOp)
     | ECopy (Expr a)
-    deriving (Eq, Ord, Show, Generic, Data, Typeable)
+    | ENative (A a Native)
+    deriving (Eq, Show, Generic, Data, Typeable)
 
 isLit :: Literal -> Expr a -> Bool
 isLit l expr =
@@ -353,6 +361,7 @@ getExprAnn expr =
       ECase (Annotated x _) -> x
       EBinOp (Annotated x _) -> x
       ECopy e -> getExprAnn e
+      ENative (Annotated x _) -> x
 
 getExprType :: Expr TypedPos -> Type
 getExprType = tp_type . getExprAnn
@@ -382,3 +391,4 @@ mapAnn f expr =
       EBinOp (Annotated x binOpE) ->
           EBinOp $ Annotated (f x) $ binOpTransform (mapAnn f) binOpE
       ECopy e -> ECopy $ mapAnn f e
+      ENative (Annotated x n) -> ENative (Annotated (f x) n)

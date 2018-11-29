@@ -211,6 +211,7 @@ floater expr =
 floatLet :: Monad m => Expr a -> m (OpenLet a, Expr a)
 floatLet expr =
     case expr of
+      ENative _ -> pure (emptyOpenLet, expr)
       ELit _ -> pure (emptyOpenLet, expr)
       EVar _ -> pure (emptyOpenLet, expr)
       EList (Annotated x listVals) -> freeList x listVals

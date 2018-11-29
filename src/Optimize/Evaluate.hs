@@ -306,6 +306,7 @@ runRecordAccess ann rawAccess =
 runExpr :: EvalM a m => Expr a -> m (Expr a)
 runExpr expr =
     case expr of
+      ENative _ -> pure expr -- nothing to do here
       ELit _ -> pure expr -- can't really do anything
       EVar (Annotated x varE) -> runVar x varE
       EList (Annotated x listVals) -> runList x listVals

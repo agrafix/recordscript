@@ -542,6 +542,8 @@ inferBinOp pos bo =
 inferExpr :: InferM m => Expr Pos -> m (Expr TypedPos)
 inferExpr expr =
     case expr of
+      ENative (Annotated p n) ->
+          pure $ ENative (Annotated (TypedPos p (n_type n)) n)
       ECopy e' ->
           ECopy <$> inferExpr e'
       ELit (Annotated p lit) ->

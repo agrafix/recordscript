@@ -36,6 +36,7 @@ handleLambda ann (Lambda args body) =
 nameLambdas :: (Show a, NameM m) => Expr a -> m (Expr a)
 nameLambdas expr =
     case expr of
+      ENative _ -> pure expr
       ELit _ -> pure expr
       EVar _ -> pure expr
       EList (Annotated x listVals) ->
