@@ -672,16 +672,31 @@ handleCase env tp (Case matchOn cases) =
 handleExprSequence ::
     AnalysisM m => Env -> TypedPos -> [Expr TypedPos]
     -> m (WriteTarget, [Expr TypedPos], PendingCopies)
-handleExprSequence env (TypedPos pos _) exprs =
-    case exprs of
+handleExprSequence env tp exprs = handleExprSequence' env tp exprs (repeat Nothing)
+
+sequenceAnalysis ::
+    AnalysisM m =>
+    Env -> Expr TypedPos -> Maybe [RecordKey] -> m (WriteTarget, Expr TypedPos)
+sequenceAnalysis env expr extraWrite =
+    writePathAnalysis expr $
+    case extraWrite of
+      Nothing -> env
+      Just rkp -> env {e_writeOccured = WoWrite, e_pathTraversed = rkp}
+
+handleExprSequence' ::
+    AnalysisM m => Env -> TypedPos -> [Expr TypedPos]
+    -> [Maybe [RecordKey]]
+    -> m (WriteTarget, [Expr TypedPos], PendingCopies)
+handleExprSequence' env (TypedPos pos _) exprs extraTargets =
+    case zip exprs extraTargets of
       [] -> pure (WtPrim PwtNone, mempty, mempty)
-      (x:xs) ->
-          do (wt, x') <- writePathAnalysis x env
+      ((x, et):xs) ->
+          do (wt, x') <- sequenceAnalysis env x et
              looper (wt, [x'], mempty) xs
     where
       looper st [] = pure st
-      looper (oldWt, oldX, oldBind) (y:ys) =
-          do (wt, y') <- writePathAnalysis y env
+      looper (oldWt, oldX, oldBind) ((y, et):ys) =
+          do (wt, y') <- sequenceAnalysis env y et
              (wt', copyActions) <-
                  joinWritePaths "expr sequence" pos oldWt wt
              (bind, oldX', y'') <-
@@ -741,8 +756,14 @@ handleFunApp env tp (FunApp rcvE args) =
           -- don't care about writes to self
           pure (WtPrim PwtNone, EFunApp (Annotated tp (FunApp rcvE args)))
       Just (FtFun ft) ->
-          do (wtInitial, treatedArgs, bind) <-
-                 handleExprSequence (env { e_position = PIn }) tp args
+          do let bubbleUp =
+                     flip map ft $ \arg ->
+                     case arg of
+                       Nothing -> Nothing
+                       Just (_, x, _, wo, _) ->
+                           if wo == WoWrite then Just x else Nothing
+             (wtInitial, treatedArgs, bind) <-
+                 handleExprSequence' (env { e_position = PIn }) tp args bubbleUp
              (wt, args') <- funWriteThrough ft treatedArgs (e_funInfo env)
              pure
                  (packMany [wtInitial, removeCopiedTargets bind wt]
