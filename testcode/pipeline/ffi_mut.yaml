@@ -1,0 +1,16 @@
+code: |
+  let doAction = #[({x: Int}, Int) => {x: Int}, wr]```
+  function (number, set_value) {
+    number.x = 0;
+    number.x = set_value;
+    return number;
+  }```;
+  let r = {x: 10};
+  doAction(r, r.x)
+javascript: |
+  (function(){var r___1={x:10};var internal0=Object.assign({},r___1);return(function (number, set_value) {
+    number.x = 0;
+    number.x = set_value;
+    return number;
+  }(internal0,(r___1).x));})()
+output: "{ x: 10 }"
