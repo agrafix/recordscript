@@ -423,12 +423,15 @@ getFunType expr funInfo =
           Just . FtRec <$> recordMapMaybeM (\e -> getFunType e funInfo) record
       EFunApp (Annotated _ (FunApp rcvE _)) ->
           getFunType rcvE funInfo
-      ENative (Annotated _ (Native ty _)) ->
-          case t_type ty of
-            TFun argTypes _ ->
-                pure $ Just $ FtFun $ flip map argTypes $ \_ ->
-                -- TODO: we are lacking write information here
-                Just (Var "dummy", [], CaBanned, WoWrite, PIn)
+      ENative (Annotated _ (Native ty argSpec _)) ->
+          case (t_type ty, argSpec) of
+            (TFun argTypes _, Just spec) ->
+                pure $ Just $ FtFun $ flip map (zip argTypes spec) $ \(_, nspec) ->
+                let copy =
+                        case nspec of
+                          NmsImmutable -> WoRead
+                          NmsMutated -> WoWrite
+                in Just (Var "dummy", [], CaAllowed, copy, PIn)
             _ -> pure Nothing
       _ -> pure Nothing -- TODO: is this right??
 
