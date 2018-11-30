@@ -7,7 +7,10 @@ import Parser.Types
 import Types.Annotation
 import Types.Ast
 import Types.Common
+import Types.Types
 
+import Control.Applicative hiding (many, some)
+import Control.Monad
 import Data.List (foldl')
 import Data.Maybe
 import Text.Megaparsec hiding (Pos)
@@ -79,10 +82,25 @@ letP =
        inExpr <- exprP
        pure (Let boundVar boundExpr inExpr)
 
+mutationSpecP :: Int -> Parser [NativeMutationStatus]
+mutationSpecP argCount =
+    replicateM argCount $
+    try (NmsImmutable <$ char 'r') <|>
+    (NmsMutated <$ char 'w')
+
 nativeP :: Parser Native
 nativeP =
     do _ <- symbol "#"
-       ty <- brackets typeP
+       (ty, mut) <-
+           brackets $
+           do typeSpec <- typeP
+              mutationSpec <-
+                  case t_type typeSpec of
+                    TFun args _ ->
+                        do _ <- symbol ","
+                           Just <$> mutationSpecP (length args) <?> "Mutation annotation"
+                    _ -> pure Nothing
+              pure (typeSpec, mutationSpec)
        _ <- symbol "```"
        body <- someTill latin1Char (symbol "```")
        js <-
@@ -96,7 +114,7 @@ nativeP =
                    _ ->
                        fail $
                        "Expected FFI javascript to be an expression. Got: " ++ show ast
-       pure $ Native ty js
+       pure $ Native ty mut js
 
 mergeP :: Parser (RecordMerge Pos)
 mergeP =

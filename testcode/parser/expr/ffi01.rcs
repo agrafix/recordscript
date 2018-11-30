@@ -1,4 +1,4 @@
-let f = #[({x: a}, a) => {x: a}]```
+let f = #[({x: a}, a) => {x: a}, wr]```
 function (foo, bar) {
    foo.x = bar;
    return foo;

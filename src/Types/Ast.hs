@@ -277,9 +277,16 @@ binOpApplyM f bo =
       BoLtEq a b -> f a >> f b
       BoNot x -> f x
 
+data NativeMutationStatus
+    = NmsMutated
+    | NmsImmutable
+    deriving (Eq, Show, Generic, Data, Typeable)
+
 data Native
     = Native
     { n_type :: Type
+    , n_funArgMutations :: Maybe [NativeMutationStatus]
+      -- ^ only if n_type is a function
     , n_code :: JSExpression
     } deriving (Eq, Show, Generic, Data, Typeable)
 

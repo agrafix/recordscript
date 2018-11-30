@@ -1,5 +1,5 @@
 code: |
-  let doAction = #[(Int, (Int) => Int) => Int]```
+  let doAction = #[(Int, (Int) => Int) => Int, rr]```
   function (number, action) {
     return action(number + 1);
   }```;
