@@ -363,6 +363,18 @@ removeTarget v wt =
       WtMany pwts ->
           packMany $ map (removeTarget v . WtPrim) pwts
 
+hasTarget ::
+    Var -> WriteTarget -> Maybe ([RecordKey], CopyAllowed, WriteOccured, Position)
+hasTarget v wt =
+    case wt of
+      WtPrim PwtNone -> Nothing
+      WtPrim (PwtVar writtenVar rk ca wo pos) ->
+          if writtenVar == v then Just (rk, ca, wo, pos) else Nothing
+      WtMany pwts ->
+          case mapMaybe (hasTarget v . WtPrim) pwts of
+            (x:_) -> Just x
+            _ -> Nothing
+
 removeCopiedTargets :: PendingCopies -> WriteTarget -> WriteTarget
 removeCopiedTargets pc wt =
     foldl' remover wt pc
@@ -777,59 +789,104 @@ writePathAnalysis expr env =
              (bindWt, bindE') <-
                  -- TODO: this seems incorrect.
                  writePathAnalysis bindE $ env { e_funInfo = funInfo' }
-             (resWt, bindE'', inE'') <-
+             (selfWt, resWt, bindE'', inE'') <-
                  do (inRes, inE') <- writePathAnalysis inE $ env { e_funInfo = funInfo' }
-                    (retWt, bindE'') <-
+                    out <-
                         handleLetTarget var bindE' (e_pathTraversed env) [] funInfo' inRes
-                    pure (removeTarget var retWt, bindE'', inE')
+                    pure (lt_self out, removeTarget var $ lt_other out, lt_expr out, inE')
              (finalWt, copyActions) <-
-                 joinWritePaths "final let" pos bindWt resWt
+                 joinWritePaths ("let " ++ show (unVar var)) pos bindWt resWt
              (finalBind, finalBindE, finalE) <-
                  applyCopyActions copyActions bindE'' inE''
              let let' =
                      ELet $ Annotated ann1 $ Let (Annotated ann2 var) finalBindE finalE
-             pure (finalWt, bindCopies finalBind let')
+             pure (selfMergeWt selfWt finalWt, bindCopies finalBind let')
     where
       unchanged x = (x, expr)
+
+selfMergeWt :: WriteTarget -> WriteTarget -> WriteTarget
+selfMergeWt selfWt otherWt =
+    case selfWt of
+      WtPrim PwtNone -> otherWt
+      WtPrim (PwtVar v rp _ wo _) ->
+          let otherInfo = hasTarget v otherWt
+          in case otherInfo of
+               Nothing -> packMany [selfWt, otherWt]
+               Just (rp', _, wo', _) ->
+                   if rp' /= rp && wo == WoRead && wo == wo'
+                   then packMany [selfWt, removeTarget v otherWt]
+                   else packMany [selfWt, otherWt]
+      WtMany many ->
+          packMany $ map (selfMergeWt selfWt . WtPrim) many
+
+data LetTarget
+    = LetTarget
+    { lt_self :: WriteTarget
+    , lt_other :: WriteTarget
+    , lt_expr :: Expr TypedPos
+    } deriving (Show, Eq)
+
+mergeLetTarget :: Expr TypedPos -> [LetTarget] -> LetTarget
+mergeLetTarget fallbackE targets =
+    let outE =
+            case targets of
+                [] -> fallbackE
+                (x:_) -> lt_expr x
+    in LetTarget
+       { lt_self = packMany $ fmap lt_self targets
+       , lt_other = packMany $ fmap lt_other targets
+       , lt_expr = outE
+       }
 
 handleLetTarget ::
     AnalysisM m
     => Var -> Expr TypedPos
     -> [RecordKey] -> [RecordKey]
     -> FunInfo -> WriteTarget
-    -> m (WriteTarget, Expr TypedPos)
+    -> m LetTarget
 handleLetTarget var bindE pathTraversed pExtra funInfo wtarget =
     case wtarget of
       WtPrim (PwtVar v recordPath ca wo pos) | v == var && pos /= PIn ->
         writePathAnalysis bindE (Env pathTraversed funInfo ca wo pos) >>= \(wpRes, wpE) ->
-        trace ("WPA wpRes=" ++ show wpRes) $
         case wpRes of
           WtPrim (PwtVar v2 rp2 ca2 wo2 p) | p /= PIn ->
               if wo2 == WoWrite && wo /= WoWrite
-              then pure (WtPrim (PwtVar v2 rp2 ca2 wo2 p), wpE)
-              else pure (WtPrim (PwtVar v2 (rp2 <> recordPath) ca2 wo2 p), wpE)
+              then pure
+                       LetTarget
+                       { lt_self = WtPrim (PwtVar v2 rp2 ca2 wo2 p)
+                       , lt_other = WtPrim PwtNone
+                       , lt_expr = wpE
+                       }
+              else pure
+                       LetTarget
+                       { lt_self = WtPrim (PwtVar v2 (rp2 <> recordPath) ca2 wo2 p)
+                       , lt_other = WtPrim PwtNone
+                       , lt_expr = wpE
+                       }
           WtMany wTargets ->
               do r <-
                      mapM (handleLetTarget var wpE pathTraversed recordPath funInfo . WtPrim)
                        wTargets
-                 let outE =
-                         case r of
-                           [] -> wpE
-                           (x:_) -> snd x
-                 pure (packMany $ fmap fst r, outE)
-          z -> pure (z, wpE)
+                 pure $ mergeLetTarget wpE r
+          z -> pure $ LetTarget {lt_self = z, lt_other = WtPrim PwtNone, lt_expr = wpE}
       WtPrim (PwtVar v rp x y pos) | pos /= PIn ->
-          pure (WtPrim (PwtVar v (rp <> pExtra) x y pos), bindE)
+          pure
+              LetTarget
+              { lt_self = WtPrim PwtNone
+              , lt_other = WtPrim (PwtVar v (rp <> pExtra) x y pos)
+              , lt_expr = bindE
+              }
       WtPrim _ ->
-          pure (WtPrim PwtNone, bindE)
+          pure
+              LetTarget
+              { lt_self = WtPrim PwtNone
+              , lt_other = WtPrim PwtNone
+              , lt_expr = bindE
+              }
       WtMany wTargets ->
           do r <-
                  mapM (handleLetTarget var bindE pathTraversed pExtra funInfo . WtPrim) wTargets
-             let outE =
-                     case r of
-                       [] -> bindE
-                       (x:_) -> snd x
-             pure (packMany $ fmap fst r, outE)
+             pure $ mergeLetTarget bindE r
 
 -- | Given a lambda, infer which arguments
 -- would need to be considered written if the result is written
