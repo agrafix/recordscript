@@ -136,7 +136,7 @@ applyCopyAction ca lhs rhs =
     case ca_side ca of
       CsLeft ->
           do (lhs', bind) <- applyAnywhere ca lhs
-             pure $ trace ("Apply " ++ show ca ++ " to " ++ show lhs ++ "=> \n" ++ show lhs') (bind, lhs', rhs)
+             pure (bind, lhs', rhs)
       CsRight ->
           do (rhs', bind) <- applyAnywhere ca rhs
              pure (bind, lhs, rhs')
@@ -187,7 +187,6 @@ applyCollecting ::
     AnalysisM m
     => CopyAction -> Expr TypedPos -> StateT PendingCopies m (Expr TypedPos)
 applyCollecting ca expr =
-    trace ("!!! Applying " ++ show ca ++ " to: \n" ++ show expr) $
     do (bind, e') <- lift $ applySingleCopyAction ca expr
        modify' $ \oldBind -> oldBind <> bind -- TODO: is this order correct???
        pure e'
@@ -840,9 +839,7 @@ argumentDependency funInfo (Lambda args body) =
     do targets <-
            handleTarget . fst <$>
            writePathAnalysis body (Env [] funInfo CaAllowed WoRead PInOut)
-       pure $
-           trace ("Trace=" ++ show targets ++ " args=" ++ show args) $
-           fmap (makeEntry targets . a_value) args
+       pure $ fmap (makeEntry targets . a_value) args
     where
       makeEntry targets var =
           let relevantTarget =
