@@ -15,7 +15,7 @@ prettyTypeAppRecv tar =
 
 prettyType :: Type -> T.Text
 prettyType t =
-    case t of
+    case t_type t of
       TApp x y -> prettyTypeAppRecv x <> "<" <> T.intercalate "," (map prettyType y) <> ">"
       TVar (TypeVar x) -> x
       TCon (TypeConstructor x) -> x

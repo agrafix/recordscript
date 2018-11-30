@@ -3,19 +3,19 @@ module Names.StdLib where
 import Types.Types
 
 tInt :: Type
-tInt = TCon (TypeConstructor "Int")
+tInt = Type $ TCon (TypeConstructor "Int")
 
 tFloat :: Type
-tFloat = TCon (TypeConstructor "Float")
+tFloat = Type $ TCon (TypeConstructor "Float")
 
 tChar :: Type
-tChar = TCon (TypeConstructor "Char")
+tChar = Type $ TCon (TypeConstructor "Char")
 
 tString :: Type
-tString = TCon (TypeConstructor "String")
+tString = Type $ TCon (TypeConstructor "String")
 
 tBool :: Type
-tBool = TCon (TypeConstructor "Bool")
+tBool = Type $ TCon (TypeConstructor "Bool")
 
 tList :: Type -> Type
-tList x = TApp (TyarCon (TypeConstructor "List")) [x]
+tList x = Type $ TApp (TyarCon (TypeConstructor "List")) [x]

@@ -68,31 +68,31 @@ literalSpec =
 typeSpec :: Spec
 typeSpec =
     do it "works for type variabels" $
-           go (TVar (TypeVar "var"))
+           go (Type $ TVar (TypeVar "var"))
        it "works for type constructors" $
-           go (TCon (TypeConstructor "Unit"))
+           go (Type $ TCon (TypeConstructor "Unit"))
        it "works for type application" $
            let arg1 = TyarCon (TypeConstructor "List")
-               arg2 = TVar (TypeVar "a")
-           in go (TApp arg1 [arg2])
+               arg2 = Type $ TVar (TypeVar "a")
+           in go (Type $ TApp arg1 [arg2])
        it "works for type application with multiple args" $
            let arg1 = TyarCon (TypeConstructor "List")
-               arg2 = TVar (TypeVar "a")
-               arg3 = TCon (TypeConstructor "String")
-           in go (TApp arg1 [arg2, arg3])
+               arg2 = Type $ TVar (TypeVar "a")
+               arg3 = Type $ TCon (TypeConstructor "String")
+           in go (Type $ TApp arg1 [arg2, arg3])
        it "works for open record types" $
-           go $ TRec $ ROpen $ Record $
-           HM.fromList [(RecordKey "foo", TVar (TypeVar "a"))]
+           go $ Type $ TRec $ ROpen $ Record $
+           HM.fromList [(RecordKey "foo", Type $ TVar (TypeVar "a"))]
        it "works for closed record types" $
-           go $ TRec $ RClosed $ Record $
-           HM.fromList [(RecordKey "foo", TVar (TypeVar "a"))]
+           go $ Type $ TRec $ RClosed $ Record $
+           HM.fromList [(RecordKey "foo", Type $ TVar (TypeVar "a"))]
        it "works for functions with no arguments" $
-           go (TFun [] (TVar (TypeVar "a")))
+           go (Type $ TFun [] (Type $ TVar (TypeVar "a")))
        it "works for functions" $
-           let arg1 = TCon (TypeConstructor "String")
-               arg2 = TVar (TypeVar "a")
-               res = TCon (TypeConstructor "Unit")
-           in go (TFun [arg1, arg2] res)
+           let arg1 = Type $ TCon (TypeConstructor "String")
+               arg2 = Type $ TVar (TypeVar "a")
+               res = Type $ TCon (TypeConstructor "Unit")
+           in go (Type $ TFun [arg1, arg2] res)
     where
         go e =
             roundTrip e prettyType typeP id

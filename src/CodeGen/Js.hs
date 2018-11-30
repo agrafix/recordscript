@@ -417,7 +417,7 @@ genExpr expr =
       EFunApp (Annotated _ funAppE) -> Left <$> genFunApp funAppE
       ELambda (Annotated _ lambdaE) -> Left <$> genLambda lambdaE
       ECopy e ->
-          case tp_type $ getExprAnn e of
+          case t_type $ tp_type $ getExprAnn e of
             TRec _ -> Left <$> genCopy e
             ty ->
                 trace ("No copy. Type was: " ++ show ty) $

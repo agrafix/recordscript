@@ -8,7 +8,10 @@ import Types.Types
 import Text.Megaparsec hiding (Pos)
 
 typeP :: Parser Type
-typeP =
+typeP = Type <$> typeValP
+
+typeValP :: Parser TypeVal
+typeValP =
     try (uncurry TFun <$> funP) <|>
     try (uncurry TApp <$> tappP) <|>
     (rewrapEither TCon TVar <$> conOrVarP) <|>

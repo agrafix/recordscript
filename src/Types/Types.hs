@@ -24,20 +24,20 @@ data TypeAppReceiver
     | TyarCon TypeConstructor
     deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
-receiverToType :: TypeAppReceiver -> Type
+receiverToType :: TypeAppReceiver -> TypeVal
 receiverToType tar =
     case tar of
       TyarVar x -> TVar x
       TyarCon c -> TCon c
 
-typeToReceiver :: Type -> Either Type TypeAppReceiver
+typeToReceiver :: TypeVal -> Either TypeVal TypeAppReceiver
 typeToReceiver ty =
     case ty of
       TVar x -> Right (TyarVar x)
       TCon c -> Right (TyarCon c)
       _ -> Left ty
 
-data Type
+data TypeVal
     = TApp TypeAppReceiver [Type]
     -- ^ Type application
     | TVar TypeVar
@@ -49,6 +49,11 @@ data Type
     | TFun [Type] Type
     -- ^ Function type
     deriving (Eq, Ord, Show, Generic, Data, Typeable)
+
+data Type
+    = Type
+    { t_type :: TypeVal
+    } deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
 data RecordType
     = ROpen (Record Type)

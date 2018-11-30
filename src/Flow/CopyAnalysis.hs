@@ -107,7 +107,7 @@ makeAccessExpr pos ca =
     injectPath (ca_path ca) $ EVar (Annotated ann (ca_var ca))
     where
       ann = TypedPos pos t
-      t = TVar (TypeVar "<unknown>")
+      t = Type $ TVar (TypeVar "<unknown>")
       injectPath remaining inner =
           case remaining of
             [] -> inner
@@ -161,7 +161,7 @@ bindCopies pcs e =
     where
       apply currentE pc =
           let pos = tp_pos (pc_annotation pc)
-              ann = TypedPos pos (TVar (TypeVar "<unknown>"))
+              ann = TypedPos pos (Type $ TVar (TypeVar "<unknown>"))
           in ELet $ Annotated (pc_annotation pc) $
              Let (Annotated ann $ pc_var pc) (pc_expr pc) currentE
 
@@ -198,7 +198,7 @@ applySingleCopyAction ca expr =
     do bindVar <- freshVar
        let exprAnn = getExprAnn expr
            pos = tp_pos exprAnn
-           ann = TypedPos pos (TVar (TypeVar "<unknown>"))
+           ann = TypedPos pos (Type $ TVar (TypeVar "<unknown>"))
            boundVar =
                Annotated ann bindVar
            boundExpr =
@@ -407,7 +407,7 @@ getFunType expr funInfo =
       EVar (Annotated tp var) ->
           case HM.lookup var (unFunInfo funInfo) of
             Nothing ->
-                case tp_type tp of
+                case t_type $ tp_type tp of
                   TFun argTypes _ ->
                       pure $ Just $ FtFun $ flip map argTypes $ \_ ->
                       -- TODO: unseen variable with function type is likely a function argument.
@@ -425,7 +425,7 @@ getFunType expr funInfo =
       EFunApp (Annotated _ (FunApp rcvE _)) ->
           getFunType rcvE funInfo
       ENative (Annotated _ (Native ty _)) ->
-          case ty of
+          case t_type ty of
             TFun argTypes _ ->
                 pure $ Just $ FtFun $ flip map argTypes $ \_ ->
                 -- TODO: we are lacking write information here

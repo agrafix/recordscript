@@ -78,28 +78,29 @@ prettyErrorMessage em =
           "Can't access key " <> k <> " in record: \n" <> prettyType t
       ERecordAccessUnknown recordType (RecordKey k) ->
           "Invalid value for record access on key " <> k <> ": \n"
-          <> prettyType (TRec $ ROpen recordType)
+          <> prettyType (Type . TRec $ ROpen recordType)
 
 type InferM m = (MonadError Error m, MonadState InferState m)
 
 resolveTypeVars :: Type -> HM.HashMap TypeVar Type -> Type
 resolveTypeVars t mp =
-    case t of
-      TApp x y -> TApp (handleContructor x) (fmap (flip resolveTypeVars mp) y)
+    case t_type t of
+      TApp x y -> wrap $ TApp (handleContructor x) (fmap (flip resolveTypeVars mp) y)
       TVar v -> traceTypeVar v mp
-      TCon x -> TCon x
+      TCon x -> wrap $ TCon x
       TRec rt ->
-          TRec $
+          wrap . TRec $
           case rt of
             ROpen r -> ROpen (handleRecord r)
             RClosed r -> RClosed (handleRecord r)
       TFun args result ->
-          TFun (fmap (flip resolveTypeVars mp) args) (resolveTypeVars result mp)
+          wrap $ TFun (fmap (flip resolveTypeVars mp) args) (resolveTypeVars result mp)
     where
+      wrap tv = t { t_type = tv }
       handleContructor x =
           case x of
             TyarVar tv ->
-                case typeToReceiver (traceTypeVar tv mp) of
+                case typeToReceiver (t_type $ traceTypeVar tv mp) of
                   Right goodRecv -> goodRecv
                   Left badType ->
                       -- TODO: nicer error handling here I assume...
@@ -116,7 +117,7 @@ traceTypeVar tv mp =
       Nothing ->
           -- TODO: hmm should this be an error? probably not since there
           -- are generic functions
-          TVar tv
+          Type (TVar tv)
       Just typeEquivalence -> resolveTypeVars typeEquivalence mp
 
 resolvePass :: Expr TypedPos -> InferState -> Expr TypedPos
@@ -204,7 +205,7 @@ getVarType pos var =
        let context = is_context s
        case HM.lookup var (ctx_varTypes context) of
          Nothing ->
-             do freshType <- TVar <$> freshTypeVar
+             do freshType <- Type . TVar <$> freshTypeVar
                 _ <- putVarType pos var freshType
                 pure freshType
          Just t -> pure t
@@ -247,7 +248,7 @@ unifyRecord pos r1 r2 =
             _ -> throwTypeError
       throwTypeError :: forall a. m a
       throwTypeError =
-          throwError $ Error pos (ETypeMismatch (TRec r1) (TRec r2))
+          throwError $ Error pos (ETypeMismatch (Type $ TRec r1) (Type $ TRec r2))
 
 tryUnifyTypes :: InferM m => Pos -> Type -> Type -> m (Maybe Type)
 tryUnifyTypes pos t1 t2 =
@@ -260,29 +261,30 @@ unifyTypes pos t1 t2 =
 
 unifyTypes' :: InferM m => Pos -> Type -> Type -> m Type
 unifyTypes' pos t1 t2 =
-    case (t1, t2) of
-      (x, y) | x == y -> pure x
+    case (t_type t1, t_type t2) of
+      (x, y) | x == y -> pure $ Type x
       (TCon c1, TCon c2) ->
           if c1 == c2
           then pure t1
           else throwTypeError
-      (TRec r1, TRec r2) -> TRec <$> unifyRecord pos r1 r2
+      (TRec r1, TRec r2) -> Type . TRec <$> unifyRecord pos r1 r2
       (TApp a1 a2, TApp b1 b2) ->
-          do lhs <-
-                 typeToReceiver <$> unifyTypes pos (receiverToType a1) (receiverToType b1)
+          do unifiedReceiverType <-
+                 unifyTypes pos (Type $ receiverToType a1) (Type $ receiverToType b1)
+             let lhs = typeToReceiver (t_type unifiedReceiverType)
              rhs <-
                  mapM (uncurry (unifyTypes pos)) $ zip a2 b2
              lhsTypeRecv <-
                  case lhs of
                    Right recv -> pure recv
-                   Left badType -> throwError $ Error pos (EBadRecvType badType)
-             pure (TApp lhsTypeRecv rhs)
-      (TVar x, t) -> assignTVar pos x t
-      (t, TVar x) -> assignTVar pos x t
+                   Left badType -> throwError $ Error pos (EBadRecvType $ Type badType)
+             pure (Type $ TApp lhsTypeRecv rhs)
+      (TVar x, t) -> assignTVar pos x $ Type t
+      (t, TVar x) -> assignTVar pos x $ Type t
       (TFun a1 r1, TFun a2 r2) ->
           do argT <- mapM (\(x, y) -> unifyTypes pos x y) (zip a1 a2)
              resT <- unifyTypes pos r1 r2
-             pure (TFun argT resT)
+             pure (Type $ TFun argT resT)
       _ -> throwTypeError
     where
       throwTypeError = throwError $ Error pos (ETypeMismatch t1 t2)
@@ -293,7 +295,7 @@ inferList pos types =
     case types of
       [] ->
           do fresh <- freshTypeVar
-             pure $ N.tList (TVar fresh)
+             pure $ N.tList (Type $ TVar fresh)
       (x:xs) ->
           do elType <-
                  foldM (\resTy localTy -> unifyTypes pos resTy localTy) x xs
@@ -326,21 +328,21 @@ inferMerge pos recMerge =
                , rm_noCopy = rm_noCopy recMerge
                }
            mergeType =
-               TRec $ RClosed $ Record mergedTypeMap
+               Type $ TRec $ RClosed $ Record mergedTypeMap
        pure (typedMerge, mergeType)
     where
         computeMap :: MergeMapTypes -> Expr TypedPos -> m MergeMapTypes
         computeMap typeMap checkingExpr =
             resolvedType (getExprType checkingExpr) >>= \resTy ->
             -- TODO: open vs close merging?
-            case resTy of
+            case t_type resTy of
               TRec (ROpen r) -> handle r typeMap
               TRec (RClosed r) -> handle r typeMap
               _ ->
                   -- TODO: is this merge correct here?
                   do let targetUnify = Record mempty
                      _ <-
-                         unifyTypes pos (getExprType checkingExpr) (TRec $ ROpen targetUnify)
+                         unifyTypes pos (getExprType checkingExpr) (Type . TRec $ ROpen targetUnify)
                      handle targetUnify typeMap
 
         handle :: Record Type -> MergeMapTypes -> m MergeMapTypes
@@ -349,7 +351,7 @@ inferMerge pos recMerge =
             forM (HM.toList rt) $ \(k, ty) ->
             case HM.lookup k mmt of
               Nothing ->
-                  do fresh <- TVar <$> freshTypeVar
+                  do fresh <- Type . TVar <$> freshTypeVar
                      _ <- unifyTypes pos fresh ty
                      pure $ HM.insert k fresh mmt
               Just otherTy ->
@@ -360,14 +362,14 @@ inferAccess :: InferM m => Pos -> RecordAccess Pos -> m (RecordAccess TypedPos, 
 inferAccess pos recAccess =
     do recordTyped <- inferExpr (ra_record recAccess)
        let recTy = getExprType recordTyped
-       newVar <- TVar <$> freshTypeVar
+       newVar <- Type . TVar <$> freshTypeVar
        let builder =
-               case recTy of
-                 TRec (ROpen _) -> TRec . ROpen
-                 TRec (RClosed _) -> TRec . RClosed
-                 _ -> TRec . ROpen
+               case t_type recTy of
+                 TRec (ROpen _) -> Type . TRec . ROpen
+                 TRec (RClosed _) -> Type . TRec . RClosed
+                 _ -> Type . TRec . ROpen
            buildMap =
-               case recTy of
+               case t_type recTy of
                  TRec (ROpen hm) -> handleHm hm newVar
                  TRec (RClosed hm) -> handleHm hm newVar
                  _ -> HM.fromList [(fld, newVar)]
@@ -376,7 +378,7 @@ inferAccess pos recAccess =
        unifiedType <-
            unifyTypes pos recTy targetUnify >>= resolvedType
        exprType <-
-           case unifiedType of
+           case t_type unifiedType of
              TRec (ROpen r) -> handle r
              TRec (RClosed r) -> handle r
              _ -> pure newVar
@@ -436,17 +438,17 @@ inferLambda _ lambdaStmt =
            do varType <- getVarType p var
               pure (Annotated (TypedPos p varType) var, varType)
        body <- inferExpr (l_body lambdaStmt)
-       let lambdaType = TFun (map snd args) (getExprType body)
+       let lambdaType = Type $ TFun (map snd args) (getExprType body)
        pure (Lambda (map fst args) body, lambdaType)
 
 inferFunApp :: InferM m => Pos -> FunApp Pos -> m (FunApp TypedPos, Type)
 inferFunApp pos funApp =
     do recvExpr <- inferExpr (fa_receiver funApp)
        argExprs <- mapM inferExpr (fa_args funApp)
-       returnType <- TVar <$> freshTypeVar
+       returnType <- Type . TVar <$> freshTypeVar
        let recvType = getExprType recvExpr
            argTypes = map getExprType argExprs
-           actualType = TFun argTypes returnType
+           actualType = Type $ TFun argTypes returnType
        _ <- unifyTypes pos recvType actualType
        pure (FunApp recvExpr argExprs, returnType)
 
@@ -473,7 +475,7 @@ inferPattern :: InferM m => Pattern Pos -> m (Pattern TypedPos, Type)
 inferPattern patternVal =
     case patternVal of
       PAny p ->
-          do expectedType <- TVar <$> freshTypeVar
+          do expectedType <- Type . TVar <$> freshTypeVar
              pure (PAny (TypedPos p expectedType), expectedType)
       PVar (Annotated p var) ->
           do varType <- getVarType p var
@@ -483,13 +485,13 @@ inferPattern patternVal =
              pure (PLit (Annotated (TypedPos p litType) lit), litType)
       PRecord (Annotated p recPat) ->
           do recPatTyped <- inferRecordPat recPat
-             let recType = TRec $ getRecordPatternType recPatTyped
+             let recType = Type . TRec $ getRecordPatternType recPatTyped
              pure (PRecord (Annotated (TypedPos p recType) recPatTyped), recType)
 
 inferCase :: InferM m => Pos -> Case Pos -> m (Case TypedPos, Type)
 inferCase pos caseStmt =
     do matchOn <- inferExpr (c_matchOn caseStmt)
-       returnType <- TVar <$> freshTypeVar
+       returnType <- Type . TVar <$> freshTypeVar
        patternMatches <-
            forM (c_cases caseStmt) $ \(pat, expr) ->
            do (patInf, patTy) <- inferPattern pat
@@ -558,7 +560,7 @@ inferExpr expr =
              pure $ EList (Annotated (TypedPos p listType) exprsTyped)
       ERecord (Annotated p record) ->
           do recordTyped <- inferRecord record
-             let recordType = TRec $ ROpen $ getRecordType recordTyped
+             let recordType = Type $ TRec $ ROpen $ getRecordType recordTyped
              pure $ ERecord (Annotated (TypedPos p recordType) recordTyped)
       ERecordMerge (Annotated p recordMerge) ->
           do (mergeTyped, mergeType) <- inferMerge p recordMerge
