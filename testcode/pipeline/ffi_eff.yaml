@@ -1,0 +1,11 @@
+code: |
+  let foo = () => {
+    let randomNumber = #[Int::io]```
+    12345
+    ```;
+    randomNumber + 1
+  };
+  foo()
+javascript: |
+  (function(){var randomNumber___1=12345;return((randomNumber___1+1));})()
+output: "12346"
