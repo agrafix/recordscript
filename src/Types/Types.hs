@@ -50,9 +50,16 @@ data TypeVal
     -- ^ Function type
     deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
+data SideEffect
+    = SeNone
+    | SeUnknown
+    | SeIo
+    deriving (Eq, Ord, Show, Generic, Data, Typeable)
+
 data Type
     = Type
     { t_type :: TypeVal
+    , t_eff :: SideEffect
     } deriving (Eq, Ord, Show, Generic, Data, Typeable)
 
 data RecordType

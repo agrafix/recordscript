@@ -107,7 +107,7 @@ makeAccessExpr pos ca =
     injectPath (ca_path ca) $ EVar (Annotated ann (ca_var ca))
     where
       ann = TypedPos pos t
-      t = Type $ TVar (TypeVar "<unknown>")
+      t = Type (TVar (TypeVar "<unknown>")) SeNone
       injectPath remaining inner =
           case remaining of
             [] -> inner
@@ -161,7 +161,7 @@ bindCopies pcs e =
     where
       apply currentE pc =
           let pos = tp_pos (pc_annotation pc)
-              ann = TypedPos pos (Type $ TVar (TypeVar "<unknown>"))
+              ann = TypedPos pos (Type (TVar (TypeVar "<unknown>")) SeNone)
           in ELet $ Annotated (pc_annotation pc) $
              Let (Annotated ann $ pc_var pc) (pc_expr pc) currentE
 
@@ -197,7 +197,7 @@ applySingleCopyAction ca expr =
     do bindVar <- freshVar
        let exprAnn = getExprAnn expr
            pos = tp_pos exprAnn
-           ann = TypedPos pos (Type $ TVar (TypeVar "<unknown>"))
+           ann = TypedPos pos (Type (TVar (TypeVar "<unknown>")) SeNone)
            boundVar =
                Annotated ann bindVar
            boundExpr =

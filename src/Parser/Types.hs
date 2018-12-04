@@ -8,7 +8,20 @@ import Types.Types
 import Text.Megaparsec hiding (Pos)
 
 typeP :: Parser Type
-typeP = Type <$> typeValP
+typeP =
+    Type <$> typeValP <*> sideEffectP
+
+sideEffectP :: Parser SideEffect
+sideEffectP =
+    do sideEffect <-
+           optional $
+           do _ <- symbol "::"
+              _ <- symbol "io"
+              pure ()
+       pure $
+           case sideEffect of
+             Just () -> SeIo
+             Nothing -> SeNone
 
 typeValP :: Parser TypeVal
 typeValP =

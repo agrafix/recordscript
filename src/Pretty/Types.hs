@@ -15,6 +15,7 @@ prettyTypeAppRecv tar =
 
 prettyType :: Type -> T.Text
 prettyType t =
+    effAnn $
     case t_type t of
       TApp x y -> prettyTypeAppRecv x <> "<" <> T.intercalate "," (map prettyType y) <> ">"
       TVar (TypeVar x) -> x
@@ -22,6 +23,11 @@ prettyType t =
       TRec r -> prettyRecord r
       TFun args ret ->
           "(" <> T.intercalate "," (map prettyType args) <> ") => " <> prettyType ret
+    where
+      effAnn x =
+          case t_eff t of
+            SeIo -> "(" <> x <> ")::io"
+            _ -> x
 
 prettyRecord :: RecordType -> T.Text
 prettyRecord r =
