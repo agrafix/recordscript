@@ -267,7 +267,7 @@ tryUnifyTypes pos t1 t2 =
 unifyTypes :: InferM m => Pos -> Type -> Type -> m Type
 unifyTypes pos t1 t2 =
     do r <- unifyTypes' pos t1 t2
-       pure $ trace (T.unpack $ "Unify: " <> prettyType t1 <> " w " <> prettyType t2 <> " -> " <> prettyType r) r
+       pure $ trace (T.unpack $ "Unify: " <> prettyType t1 <> " <<=>> " <> prettyType t2 <> " =>>> " <> prettyType r) r
 
 unifyTypes' :: InferM m => Pos -> Type -> Type -> m Type
 unifyTypes' pos t1 t2 =
@@ -286,6 +286,7 @@ unifyTypes' pos t1 t2 =
                    (Type (receiverToType a1) SeNone)
                    (Type (receiverToType b1) SeNone)
              let lhs = typeToReceiver (t_type unifiedReceiverType)
+             when (length a2 /= length b2) $ void throwTypeError
              rhs <-
                  mapM (uncurry (unifyTypes pos)) $ zip a2 b2
              lhsTypeRecv <-
@@ -299,7 +300,8 @@ unifyTypes' pos t1 t2 =
       (TVar x, t) -> assignTVar pos x $ Type t unifiedEff
       (t, TVar x) -> assignTVar pos x $ Type t unifiedEff
       (TFun a1 r1, TFun a2 r2) ->
-          do argT <- mapM (\(x, y) -> unifyTypes pos x y) (zip a1 a2)
+          do when (length a1 /= length a2) $ void throwTypeError
+             argT <- mapM (\(x, y) -> unifyTypes pos x y) (zip a1 a2)
              resT <- unifyTypes pos r1 r2
              pure $ Type (TFun argT resT) unifiedEff
       _ -> throwTypeError
