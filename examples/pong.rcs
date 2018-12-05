@@ -1,0 +1,40 @@
+let void = #[Void]```
+undefined
+```;
+let ignore = #[(a) => Void, r]```
+(function (a) {
+  return undefined;
+})
+```;
+let requestAnimationFrame = #[((Float) => Void) => Void::io, r]```
+(function (callback) {
+   window.requestAnimationFrame(callback);
+})
+```;
+let targetCanvas = #[Canvas::io]```
+document.getElementById('game').getContext('2d')
+```;
+let fillRect = #[(Canvas::io, Int, Int, Int, Int) => Canvas::io, wrrrr]```
+(function (ctx, x, y, width, height) {
+  ctx.fillRect(x, y, width, height);
+  return ctx;
+})
+```;
+let initialState = {x: 0, y: 0};
+let computeNextState = (tick, state) => {
+    state
+};
+let draw = (ctx, state) => {
+    ctx
+};
+let loop = (ctx, state) => {
+    requestAnimationFrame((tick) => {
+        let nextState = computeNextState(tick, state);
+        let nextContext = draw(ctx, nextState);
+        loop(nextContext, nextState)
+    })
+};
+let main = () => {
+    loop(targetCanvas, initialState)
+};
+main()
