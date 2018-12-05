@@ -17,5 +17,8 @@ tString = Type (TCon (TypeConstructor "String")) SeNone
 tBool :: Type
 tBool = Type (TCon (TypeConstructor "Bool")) SeNone
 
+tVoid :: Type
+tVoid = Type (TCon (TypeConstructor "Void")) SeNone
+
 tList :: Type -> Type
 tList x = Type (TApp (TyarCon (TypeConstructor "List")) [x]) SeNone
