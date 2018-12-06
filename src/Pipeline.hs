@@ -39,11 +39,16 @@ compileCode inputCode =
            first (EParseError . T.pack . parseErrorPretty) $
            executeParser "<test>" (exprP <* eof) inputCode
        let uniqueResult = runUniqueM $ runUniquify parseResult
-       typeCheckResult <- doTc uniqueResult
+       typeCheckResult <- trace "TC done" $ doTc uniqueResult
        namedLambdas <-
+           trace "Naming done" $
            pure $ runNamedLambda (nameLambdas typeCheckResult)
-       floated <- pure $ floater namedLambdas
-       evaled <- pure $ evaluate floated
+       floated <-
+           trace "Floating done" $
+           pure $ floater namedLambdas
+       evaled <-
+           trace "Eval done" $
+           pure $ evaluate floated
        let strippedTypes = mapAnn tp_pos evaled
        rechecked <- doTc strippedTypes
        flowResult <-
