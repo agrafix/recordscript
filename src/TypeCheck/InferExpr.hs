@@ -156,11 +156,16 @@ freshTypeVar =
 
 assignTVar :: InferM m => Pos -> TypeVar -> Type -> m Type
 assignTVar pos var ty =
-    do s <- get
+    do s <- trace ("Assign: " ++ show var ++ " to " ++ show ty) get
        let context = is_context s
        case HM.lookup var (ctx_equivMap context) of
          Nothing ->
-             do modifyMap s $ HM.insert var ty
+             do modifyMap s $ \hm ->
+                    case t_type ty of
+                      TVar var'
+                          -- No cycles
+                          | fmap t_type (HM.lookup var' hm) == Just (TVar var) -> hm
+                      _ -> HM.insert var ty hm
                 pure ty
          Just currentType ->
              do finalTy <- unifyTypes pos ty currentType
