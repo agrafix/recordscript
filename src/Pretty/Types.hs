@@ -26,7 +26,7 @@ prettyType t =
     where
       effAnn x =
           case t_eff t of
-            SeIo -> "(" <> x <> ")::io"
+            SeIo -> "<" <> x <> ">::io"
             _ -> x
 
 prettyRecord :: RecordType -> T.Text

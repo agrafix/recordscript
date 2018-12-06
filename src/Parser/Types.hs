@@ -9,7 +9,7 @@ import Text.Megaparsec hiding (Pos)
 
 typeP :: Parser Type
 typeP =
-    Type <$> typeValP <*> sideEffectP
+    Type <$> (typeValP <|> angles typeValP) <*> sideEffectP
 
 sideEffectP :: Parser SideEffect
 sideEffectP =

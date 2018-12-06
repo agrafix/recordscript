@@ -110,6 +110,8 @@ nativeP =
                  case ast of
                    JS.JSAstExpression expr _ -> pure expr
                    JS.JSAstProgram [JS.JSExpressionStatement expr _] _ -> pure expr
+                   JS.JSAstProgram [JS.JSMethodCall callTarget a1 argsList a2 _] _ ->
+                       pure (JS.JSCallExpression callTarget a1 argsList a2)
                    JS.JSAstStatement (JS.JSExpressionStatement expr _) _ -> pure expr
                    _ ->
                        fail $
@@ -206,7 +208,7 @@ exprP = makeExprParser termP binOpTable
 termP :: Parser (Expr Pos)
 termP =
     lexemeNl $
-    try (ELet <$> posAnnotated letP) <|>
+    (ELet <$> posAnnotated letP) <|>
     try (ECase <$> posAnnotated caseP) <|>
     try (EIf <$> posAnnotated ifP) <|>
     try (ELit <$> posAnnotated literal) <|>
