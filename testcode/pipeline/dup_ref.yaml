@@ -1,0 +1,9 @@
+code: |
+  let z = 1;
+  let b = () => {
+    z + 5
+  };
+  z + b()
+javascript: |
+  7
+output: "7"
