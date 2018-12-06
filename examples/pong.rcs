@@ -11,8 +11,42 @@ let requestAnimationFrame = #[((Float) => Void) => Void::io, r]```
    window.requestAnimationFrame(callback);
 })
 ```;
+let keyListener = #[<() => {up: Int, down: Int, left: Int, right: Int}::io>::io,]```
+(function () {
+    var keyState = {up: 0, left: 0, right: 0, down: 0};
+    var handleDown = function (e) {
+        switch (e.keyCode) {
+            case 37: keyState.left = 1; break;
+            case 38: keyState.up = 1; break;
+            case 39: keyState.right = 1; break;
+            case 40: keyState.down = 1; break;
+            default: return;
+        }
+    };
+    var handleUp = function (e) {
+        switch (e.keyCode) {
+            case 37: keyState.left = 0; break;
+            case 38: keyState.up = 0; break;
+            case 39: keyState.right = 0; break;
+            case 40: keyState.down = 0; break;
+            default: return;
+        }
+    };
+    window.addEventListener('keydown', handleDown, false);
+    window.addEventListener('keyup', handleUp, false);
+    return function () {
+        return keyState;
+    };
+})()
+```;
 let targetCanvas = #[Canvas::io]```
 document.getElementById('game').getContext('2d')
+```;
+let setFillStyle = #[(Canvas::io, String) => Canvas::io, wr]```
+(function (ctx, fillStyle) {
+  ctx.fillStyle = fillStyle;
+  return ctx;
+})
 ```;
 let fillRect = #[(Canvas::io, Int, Int, Int, Int) => Canvas::io, wrrrr]```
 (function (ctx, x, y, width, height) {
@@ -21,15 +55,19 @@ let fillRect = #[(Canvas::io, Int, Int, Int, Int) => Canvas::io, wrrrr]```
 })
 ```;
 let initialState = {x: 0, y: 0};
-let computeNextState = (tick, state) => {
-    state
+let computeNextState = (keys, tick, state) => {
+    let nextX = state.x - keys.left + keys.right;
+    let nextY = state.y - keys.up + keys.down;
+    {...state, x: nextX, y: nextY}
 };
 let draw = (ctx, state) => {
-    fillRect(ctx, 0, 0, 50, 50)
+    let ctx1 = fillRect(setFillStyle(ctx, "white"), 0, 0, 500, 500);
+    fillRect(setFillStyle(ctx1, "black"), state.x, state.y, 50, 50)
 };
 let loop = (ctx, state) => {
     requestAnimationFrame((tick) => {
-        let nextState = computeNextState(tick, state);
+        let keys = keyListener();
+        let nextState = computeNextState(keys, tick, state);
         let nextContext = draw(ctx, nextState);
         loop(nextContext, nextState)
     })
