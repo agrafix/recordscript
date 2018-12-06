@@ -6,6 +6,14 @@ let ignore = #[(a) => Void, r]```
   return undefined;
 })
 ```;
+let round = #[(Float) => Int, r]```
+Math.round
+```;
+let int2float = #[(Int) => Float, r]```
+(function (i) {
+    return i;
+})
+```;
 let requestAnimationFrame = #[((Float) => Void) => Void::io, r]```
 (function (callback) {
    window.requestAnimationFrame(callback);
@@ -54,15 +62,20 @@ let fillRect = #[(Canvas::io, Int, Int, Int, Int) => Canvas::io, wrrrr]```
   return ctx;
 })
 ```;
-let initialState = {x: 0, y: 0};
+let maxW = 500;
+let maxH = 500;
+let paddleWidth = 10;
+let paddleHeight = 50;
+let paddleHeightHalf = round(int2float(paddleHeight) / 2.0);
+let initialState = {x: 0, y: round(int2float(maxH) / 2.0)};
 let computeNextState = (keys, tick, state) => {
     let nextX = state.x - keys.left + keys.right;
     let nextY = state.y - keys.up + keys.down;
     {...state, x: nextX, y: nextY}
 };
 let draw = (ctx, state) => {
-    let ctx1 = fillRect(setFillStyle(ctx, "white"), 0, 0, 500, 500);
-    fillRect(setFillStyle(ctx1, "black"), state.x, state.y, 50, 50)
+    let ctx1 = fillRect(setFillStyle(ctx, "white"), 0, 0, maxW, maxH);
+    fillRect(setFillStyle(ctx1, "black"), state.x, state.y + paddleHeightHalf, paddleWidth, paddleHeight)
 };
 let loop = (ctx, state) => {
     requestAnimationFrame((tick) => {
