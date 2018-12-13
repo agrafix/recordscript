@@ -1,0 +1,4 @@
+let next = (q, p) => {
+  {...q, x: p, y: 0}
+};
+next

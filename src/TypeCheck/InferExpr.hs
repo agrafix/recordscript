@@ -221,7 +221,7 @@ unifyRecord pos r1 r2 =
       (RClosed x, ROpen y) -> openCloseMerge y x
       (ROpen x, RClosed y) -> openCloseMerge x y
       (RClosed (Record x), RClosed (Record y)) ->
-          do finalType <- checkSame (hmKeys x `HS.union` hmKeys y) x y
+          do finalType <- checkSame False (hmKeys x `HS.union` hmKeys y) x y
              pure $ RClosed $ Record finalType
       (ROpen (Record x), ROpen (Record y)) ->
           do let sharedKeys = hmKeys x `HS.intersection` hmKeys y
@@ -229,27 +229,30 @@ unifyRecord pos r1 r2 =
                  newKeysY = hmKeys y `HS.difference` sharedKeys
                  fromX = hmKeyRestrict newKeysX x
                  fromY = hmKeyRestrict newKeysY y
-             shared <- checkSame sharedKeys x y
+             shared <- checkSame False sharedKeys x y
              pure $ ROpen $ Record $ fromX <> fromY <> shared
     where
       openCloseMerge (Record open) (Record closed) =
           do -- this is probably not correct...
-             let sharedKeys = hmKeys open `HS.intersection` hmKeys closed
-             if sharedKeys /= hmKeys closed
+             let sharedKeys = hmKeys open `HS.union` hmKeys closed
+                 openExpected = hmKeys open `HS.difference` hmKeys closed
+             if not (HS.null $ hmKeys open) && not (HS.null openExpected)
                 then throwTypeError
-                else do finalType <- checkSame sharedKeys open closed
+                else do finalType <- checkSame True sharedKeys open closed
                         pure $ RClosed $ Record finalType
       hmKeys =
           HS.fromList . HM.keys
       hmKeyRestrict keys =
           HM.filterWithKey (\k _ -> k `HS.member` keys)
-      checkSame keys hm1 hm2 =
+      checkSame weak keys hm1 hm2 =
           fmap HM.fromList $
           forM (F.toList keys) $ \k ->
           case (HM.lookup k hm1, HM.lookup k hm2) of
             (Just t1, Just t2) ->
                 do t' <- unifyTypes pos t1 t2
                    pure (k, t')
+            (Just t1, Nothing) | weak -> pure (k, t1)
+            (Nothing, Just t1) | weak -> pure (k, t1)
             _ -> throwTypeError
       throwTypeError :: forall a. m a
       throwTypeError =
@@ -306,7 +309,7 @@ unifyTypes' pos t1 t2 =
       (t, TVar x) -> assignTVar pos x $ Type t unifiedEff
       (TFun a1 r1, TFun a2 r2) ->
           do when (length a1 /= length a2) $ void throwTypeError
-             argT <- mapM (\(x, y) -> unifyTypes pos x y) (zip a1 a2)
+             argT <- mapM (\(x, y) -> unifyTypes' pos x y) (zip a1 a2)
              resT <- unifyTypes pos r1 r2
              pure $ Type (TFun argT resT) unifiedEff
       _ -> throwTypeError
@@ -478,7 +481,7 @@ inferFunApp pos funApp =
        let recvType = getExprType recvExpr
            argTypes = map getExprType argExprs
            actualType = Type (TFun argTypes returnType) SeUnknown
-       _ <- unifyTypes pos recvType actualType
+       _ <- unifyTypes pos actualType recvType
        pure (FunApp recvExpr argExprs, returnType)
 
 inferRecordPat :: InferM m => Record (Pattern Pos) -> m (Record (Pattern TypedPos))

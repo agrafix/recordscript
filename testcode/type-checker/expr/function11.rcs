@@ -1,0 +1,12 @@
+let void = #[Void]```
+undefined
+```;
+let ignore = #[(a) => Void, r]```
+(function (a) {
+  return undefined;
+})
+```;
+let f = (r, v) => {
+  ignore(() => { f({...st, x: v, y: 0}, v + 1) })
+};
+f

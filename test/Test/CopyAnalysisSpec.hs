@@ -56,7 +56,8 @@ withTcExpr what dir go =
               let parseResult =
                       first parseErrorPretty $
                       executeParser inFile (exprP <* eof) content
-                  typeCheckResult = first show . runIdentity . runInferM . inferExpr
+                  typeCheckResult =
+                      first (T.unpack . prettyInferError) . runIdentity . runInferM . inferExpr
               case parseResult >>= typeCheckResult of
                 Right (typedExpr, _) -> go (expected, typedExpr)
                 Left errMsg ->
