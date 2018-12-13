@@ -218,12 +218,14 @@ getVarType pos var =
 unifyRecord :: forall m. InferM m => Pos -> RecordType -> RecordType -> m RecordType
 unifyRecord pos r1 r2 =
     case (r1, r2) of
-      (RClosed x, ROpen y) -> openCloseMerge y x
-      (ROpen x, RClosed y) -> openCloseMerge x y
+      (RClosed x, ROpen y) -> simpleMerge y x
+      (ROpen x, RClosed y) -> simpleMerge x y
       (RClosed (Record x), RClosed (Record y)) ->
           do finalType <- checkSame False (hmKeys x `HS.union` hmKeys y) x y
              pure $ RClosed $ Record finalType
-      (ROpen (Record x), ROpen (Record y)) ->
+      (ROpen x, ROpen y) -> simpleMerge x y
+    where
+      simpleMerge (Record x) (Record y) =
           do let sharedKeys = hmKeys x `HS.intersection` hmKeys y
                  newKeysX = hmKeys x `HS.difference` sharedKeys
                  newKeysY = hmKeys y `HS.difference` sharedKeys
@@ -231,15 +233,14 @@ unifyRecord pos r1 r2 =
                  fromY = hmKeyRestrict newKeysY y
              shared <- checkSame False sharedKeys x y
              pure $ ROpen $ Record $ fromX <> fromY <> shared
-    where
-      openCloseMerge (Record open) (Record closed) =
+      _openCloseMerge (Record open) (Record closed) =
           do -- this is probably not correct...
              let sharedKeys = hmKeys open `HS.union` hmKeys closed
                  openExpected = hmKeys open `HS.difference` hmKeys closed
              if not (HS.null $ hmKeys open) && not (HS.null openExpected)
                 then throwTypeError
                 else do finalType <- checkSame True sharedKeys open closed
-                        pure $ RClosed $ Record finalType
+                        pure $ ROpen $ Record finalType
       hmKeys =
           HS.fromList . HM.keys
       hmKeyRestrict keys =
