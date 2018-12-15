@@ -1,0 +1,16 @@
+let ignore = #[(a) => Void, w]```
+(function (a) {
+  return undefined;
+})
+```;
+let init = {x: 10, y: 11};
+let next = (q, p) => {
+  {...q, x: 1, y: p}
+};
+let f = (r, v) => {
+  ignore(() => {
+    let nextState = next(r, v);
+    f(nextState, v + 1)
+  })
+};
+f(init, 0)

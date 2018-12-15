@@ -156,7 +156,7 @@ freshTypeVar =
 
 assignTVar :: InferM m => Pos -> TypeVar -> Type -> m Type
 assignTVar pos var ty =
-    do s <- trace ("Assign: " ++ show var ++ " to " ++ show ty) get
+    do s <- trace ("Assign: " ++ show var ++ " to " ++ (T.unpack $ prettyType ty)) get
        let context = is_context s
        case HM.lookup var (ctx_equivMap context) of
          Nothing ->
