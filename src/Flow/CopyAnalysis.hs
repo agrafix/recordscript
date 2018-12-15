@@ -307,7 +307,6 @@ handleTargets pos lhs rhs =
                               case (canCopyL, canCopyR) of
                                 (False, False) ->
                                     throwError $ Error pos $
-                                    trace ("No Copy l= " ++ show l ++ " r=" ++ show r) $
                                     ECantCopy var rks
                                 (True, _) ->
                                     pure
@@ -840,7 +839,7 @@ selfMergeWt selfWt otherWt =
         mergedGroups =
             filter (\(_, x) -> not $ null x) $
             HM.toList $ HM.unionWith groupMerger selfGroups otherGroups
-    in packMany $ flip map mergedGroups $ \(v, [(a, b, c, d)]) ->
+    in packMany $ flip map mergedGroups $ \(v, ((a, b, c, d):_)) ->
        WtPrim $ PwtVar v a b c d
     where
       groupMerger self other =
@@ -887,12 +886,11 @@ handleLetTarget ::
     -> FunInfo -> WriteTarget
     -> m LetTarget
 handleLetTarget isSelf var bindE pathTraversed pExtra funInfo wtarget =
-    trace ("!!! LTH TOP @ " ++ show (unVar var) ++ "_ " ++ show wtarget) $
     case wtarget of
       WtPrim (PwtVar v recordPath ca wo pos) | v == var && pos /= PIn ->
         writePathAnalysis bindE (Env pathTraversed funInfo ca wo pos) >>=
         \(wpRes, wpE) ->
-        case trace ("handleLetTarget: " ++ show v ++ " == " ++ show var ++ ": " ++ show wpRes) wpRes of
+        case wpRes of
           WtPrim (PwtVar v2 rp2 ca2 wo2 p) | p /= PIn ->
               if wo2 == WoWrite && wo /= WoWrite
               then pure
@@ -911,7 +909,7 @@ handleLetTarget isSelf var bindE pathTraversed pExtra funInfo wtarget =
               do r <-
                      mapM (handleLetTarget SelfTarget var wpE pathTraversed recordPath funInfo . WtPrim)
                        wTargets
-                 pure $ trace "MERGE DONE" $ mergeLetTarget wpE (trace "MANY DONE" r)
+                 pure $ mergeLetTarget wpE r
           z -> pure $ LetTarget {lt_self = z, lt_other = WtPrim PwtNone, lt_expr = wpE}
       WtPrim (PwtVar v rp x y pos) | pos /= PIn ->
           do let writeOp = WtPrim (PwtVar v (rp <> pExtra) x y pos)
