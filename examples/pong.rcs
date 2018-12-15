@@ -64,18 +64,26 @@ let fillRect = #[(Canvas::io, Int, Int, Int, Int) => Canvas::io, wrrrr]```
 ```;
 let maxW = 500;
 let maxH = 500;
+let ballSize = 2;
 let paddleWidth = 10;
 let paddleHeight = 50;
 let paddleHeightHalf = round(int2float(paddleHeight) / 2.0);
-let initialState = {x: 0, y: round(int2float(maxH) / 2.0)};
+let initialState = {
+    x: 0, y: round(int2float(maxH) / 2.0),
+    ballX: round(int2float(maxW) / 2.0),
+    ballY: round(int2float(maxH) / 2.0),
+    ballVX: -0.5,
+    ballVY: -0.5
+};
 let computeNextState = (keys, tick, state) => {
     let nextX = state.x - keys.left + keys.right;
     let nextY = state.y - keys.up + keys.down;
-    {...state, x: nextX, y: nextY}
+    {...!state, x: nextX, y: nextY}
 };
 let draw = (ctx, state) => {
     let ctx1 = fillRect(setFillStyle(ctx, "white"), 0, 0, maxW, maxH);
-    fillRect(setFillStyle(ctx1, "black"), state.x, state.y + paddleHeightHalf, paddleWidth, paddleHeight)
+    let ctx2 = fillRect(setFillStyle(ctx1, "black"), state.x, state.y + paddleHeightHalf, paddleWidth, paddleHeight);
+    fillRect(ctx2, state.ballX + ballSize, state.ballY + ballSize, ballSize * 2, ballSize * 2)
 };
 let loop = (ctx, state) => {
     requestAnimationFrame((tick) => {
