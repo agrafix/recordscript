@@ -6,6 +6,12 @@ let ignore = #[(a) => Void, r]```
   return undefined;
 })
 ```;
+let debug = #[(a) => a, r]```
+(function (a) {
+  console.log(a);
+  return a;
+});
+```;
 let round = #[(Float) => Int, r]```
 Math.round
 ```;
@@ -64,26 +70,52 @@ let fillRect = #[(Canvas::io, Int, Int, Int, Int) => Canvas::io, wrrrr]```
 ```;
 let maxW = 500;
 let maxH = 500;
-let ballSize = 2;
+let ballSize = 4;
 let paddleWidth = 10;
 let paddleHeight = 50;
 let paddleHeightHalf = round(int2float(paddleHeight) / 2.0);
 let initialState = {
     x: 0, y: round(int2float(maxH) / 2.0),
-    ballX: round(int2float(maxW) / 2.0),
-    ballY: round(int2float(maxH) / 2.0),
-    ballVX: -0.5,
-    ballVY: -0.5
+    ballX: int2float(maxW) / 2.0,
+    ballY: int2float(maxH) / 2.0,
+    ballVX: -0.75,
+    ballVY: -0.5,
+    hit: false
+};
+let paddleHit = (state) => {
+    let minY = int2float(state.y);
+    let maxY = int2float(state.y + paddleHeight);
+    (state.ballX <= int2float(paddleWidth)) && (state.ballY >= minY) && (state.ballY <= maxY)
 };
 let computeNextState = (keys, tick, state) => {
     let nextX = state.x - keys.left + keys.right;
     let nextY = state.y - keys.up + keys.down;
-    {...!state, x: nextX, y: nextY}
+    let didHit = paddleHit(state);
+    let factor = if (didHit) {
+      -1.0
+    } else {
+      1.0
+    };
+    let ballX = if (didHit) {
+      int2float(paddleWidth) + 5.0
+    } else {
+      state.ballX
+    };
+    let nextBallVX = factor * state.ballVX;
+    let nextBallVY = 1.0 * state.ballVY;
+    let nextBallX = ballX + nextBallVX;
+    let nextBallY = state.ballY + nextBallVY;
+    {...!state, x: nextX, y: nextY, ballX: nextBallX, ballY: nextBallY, ballVX: nextBallVX, ballVY: nextBallVY, hit: didHit}
 };
 let draw = (ctx, state) => {
     let ctx1 = fillRect(setFillStyle(ctx, "white"), 0, 0, maxW, maxH);
     let ctx2 = fillRect(setFillStyle(ctx1, "black"), state.x, state.y + paddleHeightHalf, paddleWidth, paddleHeight);
-    fillRect(ctx2, state.ballX + ballSize, state.ballY + ballSize, ballSize * 2, ballSize * 2)
+    let ballColor = if (state.hit) {
+        "red"
+    } else {
+        "black"
+    };
+    fillRect(setFillStyle(ctx2, ballColor), round(state.ballX), round(state.ballY), ballSize, ballSize)
 };
 let loop = (ctx, state) => {
     requestAnimationFrame((tick) => {
