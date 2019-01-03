@@ -25,6 +25,11 @@ let int2str = #[(Int) => String, r]```
     return i + "";
 })
 ```;
+let float2str = #[(Float) => String, r]```
+(function (i) {
+    return i + "";
+})
+```;
 let requestAnimationFrame = #[((Float) => Void) => Void::io, r]```
 (function (callback) {
    window.requestAnimationFrame(callback);
@@ -157,9 +162,9 @@ let computeNextState = (keys, tick, state) => {
 };
 let drawGame = (ctx, state) => {
     let ctx1 = fillRect(setFillStyle(ctx, "white"), 0, 0, maxW, maxH);
-    let ctx2 = fillRect(setFillStyle(ctx1, "black"), state.x, state.y + paddleHeightHalf, paddleWidth, paddleHeight);
-    let ctx3 = fillRect(setFillStyle(ctx2, "black"), state.x2, state.y2 + paddleHeightHalf, paddleWidth, paddleHeight);
-    let ctx4 = fillText(ctx3, int2str(round(state.fps)), 5, 15);
+    let ctx2 = fillRect(setFillStyle(ctx1, "black"), state.x, state.y, paddleWidth, paddleHeight);
+    let ctx3 = fillRect(setFillStyle(ctx2, "black"), state.x2, state.y2, paddleWidth, paddleHeight);
+    let ctx4 = fillText(ctx3, float2str(state.fps), 5, 15);
     let ballColor = if (state.hit) {
         "red"
     } else {
