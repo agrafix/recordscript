@@ -68,6 +68,12 @@ let fillRect = #[(Canvas::io, Int, Int, Int, Int) => Canvas::io, wrrrr]```
   return ctx;
 })
 ```;
+let fillText = #[(Canvas::io, String, Int, Int) => Canvas::io, wrrr]```
+(function (ctx, s, x, y) {
+  ctx.fillText(s, x, y);
+  return ctx;
+})
+```;
 let maxW = 500;
 let maxH = 500;
 let ballSize = 4;
@@ -81,7 +87,8 @@ let initialState = {
     ballY: int2float(maxH) / 2.0,
     ballVX: 0.75,
     ballVY: -0.5,
-    hit: false
+    hit: false,
+    gameOver: false
 };
 let paddleHit = (state) => {
     let minY = int2float(state.y);
@@ -105,7 +112,10 @@ let sideHitFactor = (state) => {
       1.0
     }
 };
-let computeNextState = (keys, tick, state) => {
+let isGameOver = (state) => {
+    state.ballX <= 0.0 || state.ballX >= int2float(maxW)
+};
+let computeNextStateGame = (keys, tick, state) => {
     let nextX = state.x;
     let nextY = state.y - keys.up1 + keys.down1;
     let nextX2 = state.x2;
@@ -128,9 +138,16 @@ let computeNextState = (keys, tick, state) => {
     let nextBallVY = sideHitF * state.ballVY;
     let nextBallX = ballX + nextBallVX;
     let nextBallY = state.ballY + nextBallVY;
-    {...!state, x: nextX, y: nextY, x2: nextX2, y2: nextY2, ballX: nextBallX, ballY: nextBallY, ballVX: nextBallVX, ballVY: nextBallVY, hit: didHit != "n"}
+    {...!state, x: nextX, y: nextY, x2: nextX2, y2: nextY2, ballX: nextBallX, ballY: nextBallY, ballVX: nextBallVX, ballVY: nextBallVY, hit: didHit != "n", gameOver: isGameOver(state)}
 };
-let draw = (ctx, state) => {
+let computeNextState = (keys, tick, state) => {
+    if (state.gameOver) {
+       state
+    } else {
+       computeNextStateGame(keys, tick, state)
+    }
+};
+let drawGame = (ctx, state) => {
     let ctx1 = fillRect(setFillStyle(ctx, "white"), 0, 0, maxW, maxH);
     let ctx2 = fillRect(setFillStyle(ctx1, "black"), state.x, state.y + paddleHeightHalf, paddleWidth, paddleHeight);
     let ctx3 = fillRect(setFillStyle(ctx2, "black"), state.x2, state.y2 + paddleHeightHalf, paddleWidth, paddleHeight);
@@ -141,12 +158,24 @@ let draw = (ctx, state) => {
     };
     fillRect(setFillStyle(ctx3, ballColor), round(state.ballX), round(state.ballY), ballSize, ballSize)
 };
+let draw = (ctx, state) => {
+    if (state.gameOver) {
+       let ctx1 = fillRect(setFillStyle(ctx, "red"), 0, 0, maxW, maxH);
+       fillText(setFillStyle(ctx1, "black"), "Game over", 250, 250)
+    } else {
+       drawGame(ctx, state)
+    }
+};
 let loop = (ctx, state) => {
     requestAnimationFrame((tick) => {
         let keys = keyListener();
         let nextState = computeNextState(keys, tick, state);
         let nextContext = draw(ctx, nextState);
-        loop(nextContext, nextState)
+        if (!nextState.gameOver) {
+          loop(nextContext, nextState)
+        } else {
+          void
+        }
     })
 };
 let main = () => {
