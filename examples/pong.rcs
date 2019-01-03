@@ -87,6 +87,13 @@ let paddleHit = (state) => {
     let maxY = int2float(state.y + paddleHeight);
     (state.ballX <= int2float(paddleWidth)) && (state.ballY >= minY) && (state.ballY <= maxY)
 };
+let sideHitFactor = (state) => {
+    if (state.ballY <= 0.0 || state.ballY >= int2float(maxH)) {
+      -1.0
+    } else {
+      1.0
+    }
+};
 let computeNextState = (keys, tick, state) => {
     let nextX = state.x - keys.left + keys.right;
     let nextY = state.y - keys.up + keys.down;
@@ -101,8 +108,9 @@ let computeNextState = (keys, tick, state) => {
     } else {
       state.ballX
     };
+    let sideHitF = sideHitFactor(state);
     let nextBallVX = factor * state.ballVX;
-    let nextBallVY = 1.0 * state.ballVY;
+    let nextBallVY = sideHitF * state.ballVY;
     let nextBallX = ballX + nextBallVX;
     let nextBallY = state.ballY + nextBallVY;
     {...!state, x: nextX, y: nextY, ballX: nextBallX, ballY: nextBallY, ballVX: nextBallVX, ballVY: nextBallVY, hit: didHit}
