@@ -20,6 +20,11 @@ let int2float = #[(Int) => Float, r]```
     return i;
 })
 ```;
+let int2str = #[(Int) => String, r]```
+(function (i) {
+    return i + "";
+})
+```;
 let requestAnimationFrame = #[((Float) => Void) => Void::io, r]```
 (function (callback) {
    window.requestAnimationFrame(callback);
@@ -88,7 +93,9 @@ let initialState = {
     ballVX: 0.75,
     ballVY: -0.5,
     hit: false,
-    gameOver: false
+    gameOver: false,
+    lastTick: 0.0,
+    fps: 0.0
 };
 let paddleHit = (state) => {
     let minY = int2float(state.y);
@@ -138,7 +145,8 @@ let computeNextStateGame = (keys, tick, state) => {
     let nextBallVY = sideHitF * state.ballVY;
     let nextBallX = ballX + nextBallVX;
     let nextBallY = state.ballY + nextBallVY;
-    {...!state, x: nextX, y: nextY, x2: nextX2, y2: nextY2, ballX: nextBallX, ballY: nextBallY, ballVX: nextBallVX, ballVY: nextBallVY, hit: didHit != "n", gameOver: isGameOver(state)}
+    let fps = 1.0 / ((tick - 1.0 * state.lastTick) / 1000.0);
+    {...!state, x: nextX, y: nextY, x2: nextX2, y2: nextY2, ballX: nextBallX, ballY: nextBallY, ballVX: nextBallVX, ballVY: nextBallVY, hit: didHit != "n", gameOver: isGameOver(state), lastTick: tick, fps: fps}
 };
 let computeNextState = (keys, tick, state) => {
     if (state.gameOver) {
@@ -151,12 +159,13 @@ let drawGame = (ctx, state) => {
     let ctx1 = fillRect(setFillStyle(ctx, "white"), 0, 0, maxW, maxH);
     let ctx2 = fillRect(setFillStyle(ctx1, "black"), state.x, state.y + paddleHeightHalf, paddleWidth, paddleHeight);
     let ctx3 = fillRect(setFillStyle(ctx2, "black"), state.x2, state.y2 + paddleHeightHalf, paddleWidth, paddleHeight);
+    let ctx4 = fillText(ctx3, int2str(round(state.fps)), 5, 15);
     let ballColor = if (state.hit) {
         "red"
     } else {
         "black"
     };
-    fillRect(setFillStyle(ctx3, ballColor), round(state.ballX), round(state.ballY), ballSize, ballSize)
+    fillRect(setFillStyle(ctx4, ballColor), round(state.ballX), round(state.ballY), ballSize, ballSize)
 };
 let draw = (ctx, state) => {
     if (state.gameOver) {
