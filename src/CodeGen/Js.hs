@@ -180,8 +180,11 @@ handleIf selfName lambda (Annotated a (If bodies elseE)) =
                   case tailCall of
                     Nothing -> genExpr bodyE >>= exprToFunBody
                     Just x -> pure x
-              pure $
-                  JSIf JSNoAnnot JSNoAnnot check JSNoAnnot $ stmtBlock ifBody
+              let wrapper =
+                      if isBool True checkE
+                      then id
+                      else JSIf JSNoAnnot JSNoAnnot check JSNoAnnot
+              pure $ wrapper $ stmtBlock ifBody
        if hasTailCall
           then genTcoLambdaWrapper lambda compiledIf
           else genLambda lambda
